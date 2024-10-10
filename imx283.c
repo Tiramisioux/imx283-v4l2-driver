@@ -220,6 +220,13 @@ static const struct v4l2_rect imx283_active_area = {
 	.height = 3648,
 };
 
+static const struct v4l2_rect imx283_UHD_area = {
+	.top = 0,
+	.left = 236,
+	.width = 3840,
+	.height = 2160,
+};
+
 struct IMX283_reg_list {
 	unsigned int num_of_regs;
 	const struct cci_reg_sequence *regs;
@@ -321,6 +328,7 @@ enum imx283_modes {
 	IMX283_MODE_4,
 	IMX283_MODE_5,
 	IMX283_MODE_6,
+	IMX283_MODE_1C,  // UHD mode 
 };
 
 struct imx283_readout_mode {
@@ -352,6 +360,9 @@ static const struct imx283_readout_mode imx283_readout_modes[] = {
 
 	/* Vertical 2 binning horizontal 2/4, subsampling 16:9 cropping */
 	[IMX283_MODE_6] = { 0x18, 0x21, 0x00, 0x09 }, /* 10 bit */
+
+	/* UHD Mode 1/1.4 */
+	[IMX283_MODE_1C] = { 0x30, 0x41, 0x00, 0x00 }, /* 10 bit */
 };
 
 static const struct cci_reg_sequence mipi_data_rate_1440Mbps[] = {
@@ -453,6 +464,20 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vertical_ob = 8/2,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
+	{ /* 2784x1548 60fps readout mode 2A */ 
+		.mode = IMX283_MODE_2A, 
+		.bpp = 12, 
+		.width = (5472 + 96)/2, 
+		.height = (3088 + 8)/2, 
+		.min_HMAX = 362, 
+		.min_VMAX = 3300, 
+		.default_HMAX = 375, 
+		.default_VMAX = 3840, 
+		.min_SHR = 12, 
+		.horizontal_ob = 96/2, 
+		.vertical_ob = 8/2,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3078), 
+	},
 };
 
 static const struct imx283_mode supported_modes_10bit[] = {
@@ -485,6 +510,21 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3078),
+	},
+	{    
+		/* 3840x2160 60fps readout mode 1C*/
+		.mode = IMX283_MODE_1C,
+		.bpp = 10,         
+		.width = 3840+96,
+		.height = 2160+16,
+		.min_HMAX = 544,
+		.min_VMAX = 2200,
+		.default_HMAX = 576,
+		.default_VMAX = 2500,
+		.min_SHR = 12,
+		.horizontal_ob = 96,         
+		.vertical_ob = 16,         
+		.crop = CENTERED_RECTANGLE(imx283_UHD_area, 3840, 2160),     
 	},
 };
 
@@ -1771,7 +1811,7 @@ static void imx283_remove(struct i2c_client *client)
 	pm_runtime_disable(imx283->dev);
 	if (!pm_runtime_status_suspended(imx283->dev))
 		imx283_power_off(imx283->dev);
-	pm_runtime_set_suspended(imx283->dev);
+	pm_runtime_set_suspended(imx283->dev);	
 
 }
 
@@ -1783,13 +1823,13 @@ static const struct dev_pm_ops imx283_pm_ops = {
 };
 
 static struct i2c_driver imx283_i2c_driver = {
-	.driver = {
-		.name = "imx283",
-		.of_match_table	= imx283_dt_ids,
-		.pm = &imx283_pm_ops,
-	},
-	.probe = imx283_probe,
-	.remove = imx283_remove,
+    .driver = {
+        .name = "imx283",
+        .of_match_table	= imx283_dt_ids,
+        .pm = &imx283_pm_ops,
+    },
+    .probe = imx283_probe,  // Updated line
+    .remove = imx283_remove,
 };
 
 module_i2c_driver(imx283_i2c_driver);
