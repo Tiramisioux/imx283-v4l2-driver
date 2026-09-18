@@ -1,3 +1,4 @@
+#include <asm/unaligned.h>
 // SPDX-License-Identifier: GPL-2.0
 /*
  * V4L2 Support for the IMX283
