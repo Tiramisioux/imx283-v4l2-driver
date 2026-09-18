@@ -355,26 +355,22 @@ static const struct imx283_readout_mode imx283_readout_modes[] = {
 };
 
 static const struct cci_reg_sequence mipi_data_rate_1440Mbps[] = {
-	/* The default register settings provide the 1440Mbps rate */
-#if 0
+	/* Known-good 1440 Mbps/lane configuration. */
 	{ CCI_REG8(0x36c5), 0x00 }, /* Undocumented */
 	{ CCI_REG8(0x3ac4), 0x00 }, /* Undocumented */
 
-	{ CCI_REG8(0x320B), 0x00 }, /* STBPL */
-	{ CCI_REG8(0x3018), 0xa7 }, /* TCLKPOST */
-	{ CCI_REG8(0x301A), 0x6f }, /* THSPREPARE */
-	{ CCI_REG8(0x301C), 0x9f }, /* THSZERO */
-	{ CCI_REG8(0x301E), 0x5f }, /* THSTRAIL */
-	{ CCI_REG8(0x3020), 0x5f }, /* TCLKTRAIL */
-	{ CCI_REG8(0x3022), 0x6f }, /* TCLKPREPARE */
-	{ CCI_REG8(0x3024), 0x7f }, /* TCLKZERO[7:0] */
-	{ CCI_REG8(0x3025), 0x01 }, /* TCLKZERO[8] */
-	{ CCI_REG8(0x3026), 0x4f }, /* TLPX*/
-	{ CCI_REG8(0x3028), 0x47 }, /* THSEXIT */
-	{ CCI_REG8(0x302A), 0x07 }, /* TCKLPRE */
+	{ IMX283_REG_STBPL, 0x00 },
+	{ IMX283_REG_TCLKPOST, 0xa7 },
+	{ IMX283_REG_THSPREPARE, 0x6f },
+	{ IMX283_REG_THSZERO, 0x9f },
+	{ CCI_REG8(0x301e), 0x5f }, /* THSTRAIL */
+	{ IMX283_REG_TCLKTRAIL, 0x5f },
+	{ IMX283_REG_TCLKPREPARE, 0x6f },
+	{ IMX283_REG_TCLKZERO, 0x017f },
+	{ IMX283_REG_TLPX, 0x4f },
+	{ IMX283_REG_THSEXIT, 0x47 },
+	{ IMX283_REG_TCLKPRE, 0x07 },
 	{ CCI_REG8(0x3104), 0x02 }, /* SYSMODE */
-
-#endif
 };
 
 static const struct cci_reg_sequence mipi_data_rate_720Mbps[] = {
@@ -401,6 +397,39 @@ static const s64 link_frequencies[] = {
 	MHZ(720), /* 1440 Mbps lane data rate */
 	MHZ(360), /* 720 Mbps data lane rate */
 };
+
+/*
+ * Dump the clock/PHY registers which differ between the documented
+ * 360 MHz and 720 MHz link configurations.
+ *
+ * This is intentionally diagnostic only.  Do not infer an overclocked
+ * PLL configuration from these values alone.
+ */
+static void imx283_dump_link_clock_registers(struct imx283 *imx283)
+{
+	static const u16 regs[] = {
+		0x36aa, 0x36c1, 0x36c2, 0x36c5,
+		0x36f7, 0x36f8, 0x3ac4,
+		0x3018, 0x301a, 0x301c, 0x301e,
+		0x3020, 0x3022, 0x3024, 0x3026,
+		0x3028, 0x302a, 0x3104,
+	};
+	unsigned int i;
+	u64 value;
+	int ret;
+
+	dev_info(imx283->dev, "IMX283 link-clock register dump:\n");
+
+	for (i = 0; i < ARRAY_SIZE(regs); i++) {
+		ret = cci_read(imx283, CCI_REG8(regs[i]), &value, NULL);
+		if (ret)
+			dev_info(imx283->dev, "  0x%04x: read error %d\n",
+				 regs[i], ret);
+		else
+			dev_info(imx283->dev, "  0x%04x = 0x%02llx\n",
+				 regs[i], value);
+	}
+}
 
 static const struct IMX283_reg_list link_freq_reglist[] = {
 	{ /* MHZ(720)*/
@@ -1125,7 +1154,10 @@ static int imx283_standby_cancel(struct imx283 *imx283)
 	cci_multi_reg_write(imx283, imx283->freq->regs,
 			    imx283->freq->reg_count, &ret);
 
-	dev_err(imx283->dev, "Using clk freq %d MHz", imx283->freq->mhz / MHZ(1));
+	dev_info(imx283->dev, "Using xclk freq %d MHz, link freq %lld MHz (%lld Mbps/lane)",
+		 imx283->freq->mhz / MHZ(1),
+		 link_frequencies[imx283->link_freq_idx] / MHZ(1),
+		 (link_frequencies[imx283->link_freq_idx] * 2) / MHZ(1));
 
 	/* Initialise communication */
 	cci_write(imx283, IMX283_REG_PLSTMG08, IMX283_PLSTMG08_VAL, &ret);
@@ -1139,6 +1171,9 @@ static int imx283_standby_cancel(struct imx283 *imx283)
 			    link_freq_reglist[imx283->link_freq_idx].regs,
 			    link_freq_reglist[imx283->link_freq_idx].num_of_regs,
 			    &ret);
+
+	if (!ret)
+		imx283_dump_link_clock_registers(imx283);
 
 	usleep_range(1000, 2000); /* 1st Stabilisation period of 1 ms or more */
 
