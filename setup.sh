@@ -1,17 +1,36 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
+set -e
 
 DRV_VERSION=0.0.1
-
 DRV_IMX=imx283
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+DKMS_SRC="/usr/src/${DRV_IMX}-${DRV_VERSION}"
 
-echo "Uninstalling any previous ${DRV_IMX} module"
-#dkms status ${DRV_IMX} | awk -F', ' '{print $2}' | xargs -n1 sudo dkms remove -m ${DRV_IMX} -v 
-sudo dkms remove -m ${DRV_IMX} -v ${DRV_VERSION} --all
+echo "Installing ${DRV_IMX} ${DRV_VERSION} from ${SCRIPT_DIR}"
 
-sudo mkdir -p /usr/src/${DRV_IMX}-${DRV_VERSION}
+echo "Removing any existing DKMS registration"
+sudo dkms remove -m "${DRV_IMX}" -v "${DRV_VERSION}" --all || true
 
-sudo cp -r $(pwd)/* /usr/src/${DRV_IMX}-${DRV_VERSION}
+echo "Replacing DKMS source tree"
+sudo rm -rf "${DKMS_SRC}"
+sudo mkdir -p "${DKMS_SRC}"
+sudo cp -a "${SCRIPT_DIR}/." "${DKMS_SRC}/"
 
-sudo dkms add -m ${DRV_IMX} -v ${DRV_VERSION}
-sudo dkms build -m ${DRV_IMX} -v ${DRV_VERSION}
-sudo dkms install -m ${DRV_IMX} -v ${DRV_VERSION}
+echo "Adding DKMS module"
+sudo dkms add -m "${DRV_IMX}" -v "${DRV_VERSION}"
+
+echo "Building DKMS module"
+sudo dkms build -m "${DRV_IMX}" -v "${DRV_VERSION}"
+
+echo "Installing DKMS module"
+sudo dkms install -m "${DRV_IMX}" -v "${DRV_VERSION}" --force
+
+echo "Updating module dependency database"
+sudo depmod -a
+
+echo
+echo "Installed module:"
+modinfo -n "${DRV_IMX}"
+echo
+echo "Module parameters:"
+modinfo "${DRV_IMX}" | grep "^parm:" || true
