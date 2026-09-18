@@ -364,7 +364,7 @@ static const struct cci_reg_sequence mipi_data_rate_1440Mbps[] = {
 	{ IMX283_REG_THSPREPARE, 0x6f },
 	{ IMX283_REG_THSZERO, 0x9f },
 	{ CCI_REG8(0x301e), 0x5f }, /* THSTRAIL */
-	{ IMX283_REG_TCLKTRAIL, 0x5f },
+	{ IMX283_REG_THSTRAIL, 0x5f },
 	{ IMX283_REG_TCLKPREPARE, 0x6f },
 	{ IMX283_REG_TCLKZERO, 0x017f },
 	{ IMX283_REG_TLPX, 0x4f },
