@@ -1120,7 +1120,7 @@ static int imx283_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
 	struct imx283 *imx283 = to_imx283(sd);
 	struct v4l2_mbus_framefmt *try_fmt_img =
-		v4l2_subdev_get_try_format(sd, fh->state, IMAGE_PAD);
+		v4l2_subdev_state_get_format(fh->state, IMAGE_PAD);
 
 	struct v4l2_rect *try_crop;
 
@@ -1134,7 +1134,7 @@ static int imx283_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	try_fmt_img->field = V4L2_FIELD_NONE;
 
 	/* Initialize try_crop */
-	try_crop = v4l2_subdev_get_try_crop(sd, fh->state, IMAGE_PAD);
+	try_crop = v4l2_subdev_state_get_crop(fh->state, IMAGE_PAD);
 	*try_crop = imx283_active_area;
 
 	mutex_unlock(&imx283->mutex);
@@ -1480,7 +1480,7 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 					fmt->format.height);
 	imx283_update_image_pad_format(imx283, mode, fmt);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
-		framefmt = v4l2_subdev_get_try_format(sd, sd_state,
+		framefmt = v4l2_subdev_state_get_format(sd_state,
 							fmt->pad);
 		*framefmt = fmt->format;
 	} else if (imx283->mode != mode) {
@@ -1501,7 +1501,7 @@ __imx283_get_pad_crop(struct imx283 *imx283,
 {
 	switch (which) {
 	case V4L2_SUBDEV_FORMAT_TRY:
-		return v4l2_subdev_get_try_crop(&imx283->sd, sd_state, pad);
+		return v4l2_subdev_state_get_crop(sd_state, pad);
 	case V4L2_SUBDEV_FORMAT_ACTIVE:
 		return &imx283->mode->crop;
 	}
