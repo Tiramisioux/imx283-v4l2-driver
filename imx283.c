@@ -52,7 +52,8 @@ struct cci_reg_sequence {
  *  - Move to active state api
  *  - Add 720 MBps speed mode to link_freq
  *    - HMAX/VMAX must be calculated based on link-freq to support this.
- *  - Support arbitrary cropping
+ *  - Support arbitrary cropping (this branch exposes a broad set of
+ *    fixed Mode-0 12-bit 1x1 crop variants for validation)
  * 
  *  - account for the VOB
  *  - Identify where the HOB is coming from.
@@ -83,7 +84,9 @@ struct cci_reg_sequence {
 #define IMX283_REG_MDSEL1		CCI_REG8(0x3004)
 #define IMX283_REG_MDSEL2		CCI_REG8(0x3005)
 #define IMX283_REG_MDSEL3		CCI_REG8(0x3006)
+#define IMX283_MDSEL3_VCROP_EN	BIT(5)
 #define IMX283_REG_MDSEL4		CCI_REG8(0x3007)
+#define IMX283_MDSEL4_VCROP_EN	(BIT(4) | BIT(6))
 
 #define IMX283_REG_SVR			CCI_REG16_LE(0x3009)
 
@@ -252,6 +255,15 @@ struct imx283_mode {
 
 	/* minimum SHR */
 	u64 min_SHR;
+
+	/* Vertical crop calculation parameters. */
+	u32 veff;
+	u32 vst;
+	u32 vct;
+
+	/* Horizontal and vertical binning ratio. */
+	u8 hbin_ratio;
+	u8 vbin_ratio;
 
 	/* Optical Blanking */
 	u32 horizontal_ob;
@@ -424,36 +436,406 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 /* Mode configs */
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
-		/* 5568x3664 21.40fps readout mode 0 */
+		/* Mode 0, 12-bit 1x1, full active area */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 3648 + 16,
+		.width = 5472,
+		.height = 3648,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
-		/* 2784x1828 51.80fps readout mode 2 */
-		.mode = IMX283_MODE_2,
+		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = (5472 + 96)/2,
-		.height = (3648 + 8)/2,
-		.min_HMAX = 362,
-		.min_VMAX = 3840,
-		.default_HMAX = 375,
-		.default_VMAX = 3840,
+		.width = 5184,
+		.height = 3456,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
 		.min_SHR = 12,
-		.horizontal_ob = 96/2,
-		.vertical_ob = 8/2,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5184, 3456),
 	},
-};
+	{
+		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 4608,
+		.height = 3072,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4608, 3072),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 4096,
+		.height = 2732,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2732),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 4000,
+		.height = 2668,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4000, 2668),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3936,
+		.height = 2624,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3936, 2624),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3840,
+		.height = 2560,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 2560),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 16:9 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 4096,
+		.height = 2304,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2304),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, DCI 1.90:1 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 4096,
+		.height = 2160,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2160),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 16:9 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3936,
+		.height = 2214,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3936, 2214),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, CineMate crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3936,
+		.height = 2176,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3936, 2176),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, UHD 16:9 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3840,
+		.height = 2160,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 2160),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 2:1 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 4096,
+		.height = 2048,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2048),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 2:1 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3840,
+		.height = 1920,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 1920),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 2.39:1 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 4096,
+		.height = 1716,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 1716),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 2.39:1 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3840,
+		.height = 1608,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 1608),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 1:1 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 3000,
+		.height = 3000,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3000, 3000),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 2736,
+		.height = 1824,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 2736, 1824),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 16:9 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 2048,
+		.height = 1152,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 2048, 1152),
+	},
+	{
+		/* Mode 0, 12-bit 1x1, 16:9 crop */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 1920,
+		.height = 1080,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.default_HMAX = 900,
+		.default_VMAX = 4000,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 1920, 1080),
+	},
+}
 
 static const struct imx283_mode supported_modes_10bit[] = {
 	{
@@ -1195,21 +1577,42 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		mode->crop.width,
 		mode->crop.height);
 
-	/* Todo: Update for arbitrary vertical cropping */
-	cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
-		  mode->height - mode->vertical_ob, &ret);
-	cci_write(imx283, IMX283_REG_WRITE_VSIZE, mode->height, &ret);
+	/*
+	 * Enable the sensor's arbitrary vertical-crop path. Mode 0 is still
+	 * the underlying 12-bit 1x1 readout; only the active output window
+	 * changes for the crop variants above.
+	 */
+	cci_write(imx283, IMX283_REG_MDSEL3,
+		  readout->mdsel3 | IMX283_MDSEL3_VCROP_EN, &ret);
+	cci_write(imx283, IMX283_REG_MDSEL4,
+		  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
+
+	{
+		u32 y_out_size = mode->crop.height / mode->vbin_ratio;
+		u32 write_v_size = y_out_size + mode->vertical_ob;
+		u32 v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
+		s32 v_pos;
+
+		/* VWINPOS uses half-line units; mirror the upstream calculation. */
+		if (imx283->vflip->val)
+			v_pos = ((-(s32)mode->crop.top / mode->vbin_ratio) / 2) + mode->vst;
+		else
+			v_pos = ((s32)mode->crop.top / mode->vbin_ratio / 2) + mode->vst;
+
+		cci_write(imx283, IMX283_REG_Y_OUT_SIZE, y_out_size, &ret);
+		cci_write(imx283, IMX283_REG_WRITE_VSIZE, write_v_size, &ret);
+		cci_write(imx283, IMX283_REG_VWIDCUT, v_widcut, &ret);
+		cci_write(imx283, IMX283_REG_VWINPOS, v_pos, &ret);
+	}
+
 	cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 
-	/* Configure cropping */
+	/* Configure horizontal cropping. */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
-
-	/* Todo: Validate mode->crop is fully contained within imx283_native_area */
-	/* Todo: Validate with an adjustable crop */
 	cci_write(imx283, IMX283_REG_HTRIMMING_START, mode->crop.left, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_END,
-		  mode->crop.left + mode->crop.width + 1, &ret);
+		  mode->crop.left + mode->crop.width, &ret);
 
 	/* Todo: These must be calculated based on the link-freq and mode */
 	cci_write(imx283, IMX283_REG_HMAX, mode->default_HMAX, &ret);
