@@ -1403,8 +1403,7 @@ static int imx283_get_pad_format(struct v4l2_subdev *sd,
 
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *try_fmt =
-			v4l2_subdev_get_try_format(&imx283->sd, sd_state,
-						   fmt->pad);
+			v4l2_subdev_state_get_format(sd_state, fmt->pad);
 		/* update the code which could change due to vflip or hflip: */
 		try_fmt->code = imx283_get_format_code(imx283, try_fmt->code);
 		fmt->format = *try_fmt;
