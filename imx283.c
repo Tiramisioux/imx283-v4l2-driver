@@ -397,82 +397,6 @@ static const s64 link_frequencies[] = {
 	MHZ(360), /* 720 Mbps data lane rate */
 };
 
-/*
- * Dump the clock/PHY registers which differ between the documented
- * 360 MHz and 720 MHz link configurations.
- *
- * This is intentionally diagnostic only.  Do not infer an overclocked
- * PLL configuration from these values alone.
- */
-/*
- * Diagnostic register dumping is deliberately opt-in because dumping the
- * complete clock/PHY areas requires hundreds of I2C reads.
- *
- * Enable with:
- *   modprobe imx283 diag=1
- *
- * If the driver is built into the kernel, use:
- *   imx283.diag=1
- * on the kernel command line.
- */
-static bool imx283_diag;
-module_param_named(diag, imx283_diag, bool, 0644);
-MODULE_PARM_DESC(diag, "Dump IMX283 clock/PLL/MIPI registers while starting stream");
-
-static void imx283_dump_range(struct imx283 *imx283, u16 first, u16 last)
-{
-	u16 reg;
-	u64 value;
-	int ret;
-
-	for (reg = first; reg <= last; reg++) {
-		ret = cci_read(imx283, CCI_REG8(reg), &value, NULL);
-		if (ret)
-			dev_info(imx283->dev, "  0x%04x: read error %d\\n", reg, ret);
-		else
-			dev_info(imx283->dev, "  0x%04x = 0x%02llx\\n", reg, value);
-	}
-}
-
-static void imx283_dump_link_clock_registers(struct imx283 *imx283)
-{
-	static const u16 regs[] = {
-		0x36aa, 0x36c1, 0x36c2, 0x36c5,
-		0x36f7, 0x36f8, 0x3ac4,
-		0x3018, 0x301a, 0x301c, 0x301e,
-		0x3020, 0x3022, 0x3024, 0x3025,
-		0x3026, 0x3028, 0x302a, 0x3104,
-	};
-	unsigned int i;
-	u64 value;
-	int ret;
-
-	dev_info(imx283->dev,
-		 "IMX283 link-clock diagnostic dump: link=%lld MHz (%lld Mbps/lane)\\n",
-		 link_frequencies[imx283->link_freq_idx] / MHZ(1),
-		 (link_frequencies[imx283->link_freq_idx] * 2) / MHZ(1));
-
-	dev_info(imx283->dev, "Known clock/PHY control registers:\\n");
-	for (i = 0; i < ARRAY_SIZE(regs); i++) {
-		ret = cci_read(imx283, CCI_REG8(regs[i]), &value, NULL);
-		if (ret)
-			dev_info(imx283->dev, "  0x%04x: read error %d\\n",
-				 regs[i], ret);
-		else
-			dev_info(imx283->dev, "  0x%04x = 0x%02llx\\n",
-				 regs[i], value);
-	}
-
-	dev_info(imx283->dev, "Input PLL area 0x36a0-0x36ff:\\n");
-	imx283_dump_range(imx283, 0x36a0, 0x36ff);
-
-	dev_info(imx283->dev, "MIPI/PHY area 0x3a00-0x3aff:\\n");
-	imx283_dump_range(imx283, 0x3a00, 0x3aff);
-
-	dev_info(imx283->dev, "Core/MIPI timing area 0x3000-0x3030:\\n");
-	imx283_dump_range(imx283, 0x3000, 0x3030);
-}
-
 static const struct IMX283_reg_list link_freq_reglist[] = {
 	{ /* MHZ(720)*/
 		.num_of_regs = ARRAY_SIZE(mipi_data_rate_1440Mbps),
@@ -691,6 +615,84 @@ int cci_read(struct imx283 *imx283, u32 reg, u64 *val, int *err) {
 
     return 0;
 }
+
+
+/*
+ * Dump the clock/PHY registers which differ between the documented
+ * 360 MHz and 720 MHz link configurations.
+ *
+ * This is intentionally diagnostic only.  Do not infer an overclocked
+ * PLL configuration from these values alone.
+ */
+/*
+ * Diagnostic register dumping is deliberately opt-in because dumping the
+ * complete clock/PHY areas requires hundreds of I2C reads.
+ *
+ * Enable with:
+ *   modprobe imx283 diag=1
+ *
+ * If the driver is built into the kernel, use:
+ *   imx283.diag=1
+ * on the kernel command line.
+ */
+static bool imx283_diag;
+module_param_named(diag, imx283_diag, bool, 0644);
+MODULE_PARM_DESC(diag, "Dump IMX283 clock/PLL/MIPI registers while starting stream");
+
+static void imx283_dump_range(struct imx283 *imx283, u16 first, u16 last)
+{
+	u16 reg;
+	u64 value;
+	int ret;
+
+	for (reg = first; reg <= last; reg++) {
+		ret = cci_read(imx283, CCI_REG8(reg), &value, NULL);
+		if (ret)
+			dev_info(imx283->dev, "  0x%04x: read error %d\\n", reg, ret);
+		else
+			dev_info(imx283->dev, "  0x%04x = 0x%02llx\\n", reg, value);
+	}
+}
+
+static void imx283_dump_link_clock_registers(struct imx283 *imx283)
+{
+	static const u16 regs[] = {
+		0x36aa, 0x36c1, 0x36c2, 0x36c5,
+		0x36f7, 0x36f8, 0x3ac4,
+		0x3018, 0x301a, 0x301c, 0x301e,
+		0x3020, 0x3022, 0x3024, 0x3025,
+		0x3026, 0x3028, 0x302a, 0x3104,
+	};
+	unsigned int i;
+	u64 value;
+	int ret;
+
+	dev_info(imx283->dev,
+		 "IMX283 link-clock diagnostic dump: link=%lld MHz (%lld Mbps/lane)\\n",
+		 link_frequencies[imx283->link_freq_idx] / MHZ(1),
+		 (link_frequencies[imx283->link_freq_idx] * 2) / MHZ(1));
+
+	dev_info(imx283->dev, "Known clock/PHY control registers:\\n");
+	for (i = 0; i < ARRAY_SIZE(regs); i++) {
+		ret = cci_read(imx283, CCI_REG8(regs[i]), &value, NULL);
+		if (ret)
+			dev_info(imx283->dev, "  0x%04x: read error %d\\n",
+				 regs[i], ret);
+		else
+			dev_info(imx283->dev, "  0x%04x = 0x%02llx\\n",
+				 regs[i], value);
+	}
+
+	dev_info(imx283->dev, "Input PLL area 0x36a0-0x36ff:\\n");
+	imx283_dump_range(imx283, 0x36a0, 0x36ff);
+
+	dev_info(imx283->dev, "MIPI/PHY area 0x3a00-0x3aff:\\n");
+	imx283_dump_range(imx283, 0x3a00, 0x3aff);
+
+	dev_info(imx283->dev, "Core/MIPI timing area 0x3000-0x3030:\\n");
+	imx283_dump_range(imx283, 0x3000, 0x3030);
+}
+
 
 
 int cci_write(struct imx283 *imx283, u32 reg, u64 val, int *err) {
