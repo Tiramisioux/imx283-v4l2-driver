@@ -436,23 +436,33 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 /* Mode configs */
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
-		/* Mode 0, 12-bit 1x1, full active area */
+		/* 5568x3664 21.40fps readout mode 0 */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 5472,
-		.height = 3648,
+		.width = 5472 + 96,
+		.height = 3648 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+	},
+	{
+		/* 2784x1828 51.80fps readout mode 2 */
+		.mode = IMX283_MODE_2,
+		.bpp = 12,
+		.width = (5472 + 96)/2,
+		.height = (3648 + 8)/2,
+		.min_HMAX = 362,
+		.min_VMAX = 3840,
+		.default_HMAX = 375,
+		.default_VMAX = 3840,
+		.min_SHR = 12,
+		.horizontal_ob = 96/2,
+		.vertical_ob = 8/2,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
@@ -835,8 +845,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 1920, 1080),
 	},
-}
-
+};
 static const struct imx283_mode supported_modes_10bit[] = {
 	{
 		/* 5568x3664 25.48fps readout mode 1 */
@@ -1577,42 +1586,49 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		mode->crop.width,
 		mode->crop.height);
 
-	/*
-	 * Enable the sensor's arbitrary vertical-crop path. Mode 0 is still
-	 * the underlying 12-bit 1x1 readout; only the active output window
-	 * changes for the crop variants above.
-	 */
-	cci_write(imx283, IMX283_REG_MDSEL3,
-		  readout->mdsel3 | IMX283_MDSEL3_VCROP_EN, &ret);
-	cci_write(imx283, IMX283_REG_MDSEL4,
-		  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
+	if (mode->mode == IMX283_MODE_0) {
+		/*
+		 * Mode 0 is the 12-bit 1x1 readout. This branch enables the
+		 * sensor's arbitrary vertical-crop path for the fixed crop
+		 * variants in supported_modes_12bit[].
+		 */
+		cci_write(imx283, IMX283_REG_MDSEL3,
+			  readout->mdsel3 | IMX283_MDSEL3_VCROP_EN, &ret);
+		cci_write(imx283, IMX283_REG_MDSEL4,
+			  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
 
-	{
-		u32 y_out_size = mode->crop.height / mode->vbin_ratio;
-		u32 write_v_size = y_out_size + mode->vertical_ob;
-		u32 v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
-		s32 v_pos;
+		{
+			u32 y_out_size = mode->crop.height / mode->vbin_ratio;
+			u32 write_v_size = y_out_size + mode->vertical_ob;
+			u32 v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
+			s32 v_pos;
 
-		/* VWINPOS uses half-line units; mirror the upstream calculation. */
-		if (imx283->vflip->val)
-			v_pos = ((-(s32)mode->crop.top / mode->vbin_ratio) / 2) + mode->vst;
-		else
-			v_pos = ((s32)mode->crop.top / mode->vbin_ratio / 2) + mode->vst;
+			if (imx283->vflip->val)
+				v_pos = ((-(s32)mode->crop.top / mode->vbin_ratio) / 2) + mode->vst;
+			else
+				v_pos = ((s32)mode->crop.top / mode->vbin_ratio / 2) + mode->vst;
 
-		cci_write(imx283, IMX283_REG_Y_OUT_SIZE, y_out_size, &ret);
-		cci_write(imx283, IMX283_REG_WRITE_VSIZE, write_v_size, &ret);
-		cci_write(imx283, IMX283_REG_VWIDCUT, v_widcut, &ret);
-		cci_write(imx283, IMX283_REG_VWINPOS, v_pos, &ret);
+			cci_write(imx283, IMX283_REG_Y_OUT_SIZE, y_out_size, &ret);
+			cci_write(imx283, IMX283_REG_WRITE_VSIZE, write_v_size, &ret);
+			cci_write(imx283, IMX283_REG_VWIDCUT, v_widcut, &ret);
+			cci_write(imx283, IMX283_REG_VWINPOS, v_pos, &ret);
+		}
+
+		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
+	} else {
+		/* Preserve the existing timing/crop programming for other modes. */
+		cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
+			  mode->height - mode->vertical_ob, &ret);
+		cci_write(imx283, IMX283_REG_WRITE_VSIZE, mode->height, &ret);
+		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 	}
-
-	cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 
 	/* Configure horizontal cropping. */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_START, mode->crop.left, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_END,
-		  mode->crop.left + mode->crop.width, &ret);
+		  mode->crop.left + mode->crop.width + 1, &ret);
 
 	/* Todo: These must be calculated based on the link-freq and mode */
 	cci_write(imx283, IMX283_REG_HMAX, mode->default_HMAX, &ret);
