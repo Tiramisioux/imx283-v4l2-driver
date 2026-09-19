@@ -470,6 +470,23 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
+		/* Readout mode 2A: 2x2 binned 12-bit, 16:9 (2736x1538 active). */
+		.mode = IMX283_MODE_2A,
+		.bpp = 12,
+		.width = 2736 + 48,
+		.height = 1538 + 4,
+		.min_HMAX = 362,
+		.min_VMAX = 3300,
+		.default_HMAX = 375,
+		.default_VMAX = 3300,
+		.min_SHR = 12,
+		.hbin_ratio = 2,
+		.vbin_ratio = 2,
+		.horizontal_ob = 48,
+		.vertical_ob = 4,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
+	},
+	{
 		/* Readout mode 3: 3x3 binned 12-bit (1824x1216 active). */
 		.mode = IMX283_MODE_3,
 		.bpp = 12,
