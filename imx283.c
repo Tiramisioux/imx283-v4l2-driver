@@ -507,6 +507,52 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
+		/*
+		 * Readout mode 4: 3x horizontal binning with 2/9 vertical
+		 * subsampling, 1824x370 active output, 12-bit.
+		 *
+		 * Sony specifies 240.21 fps. The timing below is derived from
+		 * the documented maximum frame rate and must be hardware-validated.
+		 */
+		.mode = IMX283_MODE_4,
+		.bpp = 12,
+		.width = 1824 + 32,
+		.height = 370 + 4,
+		.min_HMAX = 284,
+		.min_VMAX = 1052,
+		.default_HMAX = 285,
+		.default_VMAX = 1052,
+		.min_SHR = 16,
+		.hbin_ratio = 3,
+		.vbin_ratio = 1,
+		.horizontal_ob = 32,
+		.vertical_ob = 4,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+	},
+	{
+		/*
+		 * Readout mode 5: 3x horizontal binning with 2/19 vertical
+		 * subsampling, 1824x190 active output, 12-bit.
+		 *
+		 * Sony specifies 452.03 fps. The timing below is derived from
+		 * the documented maximum frame rate and must be hardware-validated.
+		 */
+		.mode = IMX283_MODE_5,
+		.bpp = 12,
+		.width = 1824 + 32,
+		.height = 190 + 4,
+		.min_HMAX = 284,
+		.min_VMAX = 559,
+		.default_HMAX = 285,
+		.default_VMAX = 559,
+		.min_SHR = 16,
+		.hbin_ratio = 3,
+		.vbin_ratio = 1,
+		.horizontal_ob = 32,
+		.vertical_ob = 4,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+	},
+	{
 		/* Mode 0, 12-bit 1x1, 3:2 crop */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
@@ -917,6 +963,48 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3078),
+	},
+	{
+		/*
+		 * Readout mode 1S: 3000x3000 square 10-bit readout.
+		 * Sony specifies 42.96 fps. Timing is derived from the
+		 * documented maximum frame rate and must be hardware-validated.
+		 */
+		.mode = IMX283_MODE_1S,
+		.bpp = 10,
+		.width = 3000 + 96,
+		.height = 3000 + 16,
+		.min_HMAX = 745,
+		.min_VMAX = 2235,
+		.default_HMAX = 750,
+		.default_VMAX = 2235,
+		.min_SHR = 12,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3000),
+	},
+	{
+		/*
+		 * Readout mode 6: 2x2 binned 16:9 10-bit readout.
+		 * Sony specifies 2736x1538 at 60.01 fps. Timing is derived
+		 * from the documented maximum frame rate and must be validated.
+		 */
+		.mode = IMX283_MODE_6,
+		.bpp = 10,
+		.width = 2736 + 48,
+		.height = 1538 + 4,
+		.min_HMAX = 745,
+		.min_VMAX = 1600,
+		.default_HMAX = 750,
+		.default_VMAX = 1600,
+		.min_SHR = 12,
+		.hbin_ratio = 2,
+		.vbin_ratio = 2,
+		.horizontal_ob = 48,
+		.vertical_ob = 4,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 	},
 };
 
