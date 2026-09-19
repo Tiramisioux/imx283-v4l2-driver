@@ -470,6 +470,26 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
+		/* Readout mode 3: 3x3 binned 12-bit (1824x1216 active). */
+		.mode = IMX283_MODE_3,
+		.bpp = 12,
+		.width = 1824 + 32,
+		.height = 1216 + 4,
+		.min_HMAX = 284,
+		.min_VMAX = 4200,
+		.default_HMAX = 285,
+		.default_VMAX = 4200,
+		.min_SHR = 16,
+		.veff = 1234,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 3,
+		.vbin_ratio = 3,
+		.horizontal_ob = 32,
+		.vertical_ob = 4,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+	},
+	{
 		/* Mode 0, 12-bit 1x1, 3:2 crop */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
@@ -1133,9 +1153,9 @@ static int imx283_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 						   MEDIA_BUS_FMT_SRGGB12_1X12);
 	try_fmt_img->field = V4L2_FIELD_NONE;
 
-	/* Initialize try_crop */
+	/* Initialize try_crop to the selected default mode's active area. */
 	try_crop = v4l2_subdev_state_get_crop(fh->state, IMAGE_PAD);
-	*try_crop = imx283_active_area;
+	*try_crop = imx283->mode->crop;
 
 	mutex_unlock(&imx283->mutex);
 
@@ -1478,6 +1498,17 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 					fmt->format.width,
 					fmt->format.height);
 	imx283_update_image_pad_format(imx283, mode, fmt);
+
+	/*
+	 * Keep the V4L2 selection state synchronized with the selected
+	 * sensor mode. libcamera uses the subdev crop selection when it
+	 * describes the sensor mode and its active pixel rectangle. This
+	 * is particularly important for the fixed crop modes in this
+	 * experimental branch: the output format and the sensor crop are
+	 * intentionally different (the crop excludes optical-black pixels).
+	 */
+	*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = mode->crop;
+
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		framefmt = v4l2_subdev_state_get_format(sd_state,
 							fmt->pad);
