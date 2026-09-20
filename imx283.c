@@ -630,12 +630,27 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 		.experimental = true,
 	},
+	/*
+	 * Aspect-ratio family for Mode 0 (WP-283-6), replacing the eighteen ad-hoc
+	 * pixel-count crop entries this branch used to carry here: those were sizes,
+	 * not framings, and a driver already carrying the hardest table in this file
+	 * should not carry two families of it. Geometry is taken verbatim from
+	 * development/experimental-crop-modes/ASPECT-RATIOS.md's imx283 table, which
+	 * is the authority for these numbers -- do not recompute them here.
+	 *
+	 * VMAX stays at the full-frame floor for every ratio (WP-283-3): there is no
+	 * mainline precedent or datasheet figure for a per-crop floor on this sensor,
+	 * and mainline's own binned modes carry a *higher* floor than the full frame,
+	 * so a shorter crop must not be assumed faster. Every entry below therefore
+	 * runs at the same ~21.40fps as full Mode 0; what a ratio buys is field of
+	 * view and a smaller file (MB/frame noted per entry, at 12-bit).
+	 */
 	{
-		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		/* Mode 0, 12-bit 1x1, 1:1 crop -- 20.6 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 5184 + 96,
-		.height = 3456 + 16,
+		.width = 3648 + 96,
+		.height = 3648 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -648,14 +663,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5184, 3456),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3648, 3648),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		/* Mode 0, 12-bit 1x1, 1.33:1 crop -- 27.3 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 4608 + 96,
-		.height = 3072 + 16,
+		.width = 4864 + 96,
+		.height = 3648 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -668,14 +683,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4608, 3072),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 4864, 3648),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		/* Mode 0, 12-bit 1x1, 1.37:1 crop -- 28.1 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 4096 + 96,
-		.height = 2732 + 16,
+		.width = 5016 + 96,
+		.height = 3648 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -688,14 +703,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2732),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5016, 3648),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		/* Mode 0, 12-bit 1x1, 1.78:1 crop -- 25.9 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 4000 + 96,
-		.height = 2668 + 16,
+		.width = 5472 + 96,
+		.height = 3080 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -708,14 +723,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4000, 2668),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3080),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		/* Mode 0, 12-bit 1x1, 1.85:1 crop -- 24.8 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 3936 + 96,
-		.height = 2624 + 16,
+		.width = 5472 + 96,
+		.height = 2956 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -728,14 +743,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3936, 2624),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2956),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 3:2 crop */
+		/* Mode 0, 12-bit 1x1, 1.89:1 crop -- 24.3 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 3840 + 96,
-		.height = 2560 + 16,
+		.width = 5472 + 96,
+		.height = 2896 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -748,14 +763,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 2560),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2896),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 16:9 crop */
+		/* Mode 0, 12-bit 1x1, 1.90:1 crop -- 24.2 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 4096 + 96,
-		.height = 2304 + 16,
+		.width = 5472 + 96,
+		.height = 2880 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -768,14 +783,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2304),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2880),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, DCI 1.90:1 crop */
+		/* Mode 0, 12-bit 1x1, 2.00:1 crop -- 23.0 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 4096 + 96,
-		.height = 2160 + 16,
+		.width = 5472 + 96,
+		.height = 2736 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -788,14 +803,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2160),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2736),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 16:9 crop */
+		/* Mode 0, 12-bit 1x1, 2.20:1 crop -- 20.9 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 3936 + 96,
-		.height = 2214 + 16,
+		.width = 5472 + 96,
+		.height = 2488 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -808,14 +823,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3936, 2214),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2488),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, UHD 16:9 crop */
+		/* Mode 0, 12-bit 1x1, 2.22:1 crop -- 20.7 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 3840 + 96,
-		.height = 2160 + 16,
+		.width = 5472 + 96,
+		.height = 2464 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -828,14 +843,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 2160),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2464),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 2:1 crop */
+		/* Mode 0, 12-bit 1x1, 2.35:1 crop -- 19.6 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 4096 + 96,
-		.height = 2048 + 16,
+		.width = 5472 + 96,
+		.height = 2328 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -848,14 +863,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 2048),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2328),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 2:1 crop */
+		/* Mode 0, 12-bit 1x1, 2.39:1 crop -- 19.2 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 3840 + 96,
-		.height = 1920 + 16,
+		.width = 5472 + 96,
+		.height = 2288 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -868,14 +883,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 1920),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2288),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 2.39:1 crop */
+		/* Mode 0, 12-bit 1x1, 2.50:1 crop -- 18.4 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 4096 + 96,
-		.height = 1716 + 16,
+		.width = 5472 + 96,
+		.height = 2188 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -888,14 +903,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4096, 1716),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2188),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 2.39:1 crop */
+		/* Mode 0, 12-bit 1x1, 2.55:1 crop -- 18.0 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 3840 + 96,
-		.height = 1608 + 16,
+		.width = 5472 + 96,
+		.height = 2144 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.default_HMAX = 900,
@@ -908,87 +923,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 1608),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 1:1 crop */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 3000 + 96,
-		.height = 3000 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3000, 3000),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 3:2 crop */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 2736 + 96,
-		.height = 1824 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 2736, 1824),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 16:9 crop */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 2048 + 96,
-		.height = 1152 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 2048, 1152),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 16:9 crop */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 1920 + 96,
-		.height = 1080 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 1920, 1080),
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2144),
 	},
 };
 static const struct imx283_mode supported_modes_10bit[] = {
