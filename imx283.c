@@ -7,6 +7,7 @@
  *
  */
 
+#include <linux/unaligned.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
@@ -222,6 +223,18 @@ static const struct v4l2_rect imx283_active_area = {
 	.height = 3648,
 };
 
+/*
+ * UHD 4K readout window for IMX283_MODE_1C. The 0x30 readout drive mode
+ * addresses the array differently from the all-pixel modes, so this window
+ * is defined explicitly rather than centred on imx283_active_area.
+ */
+static const struct v4l2_rect imx283_UHD_area = {
+	.top = 0,
+	.left = 236,
+	.width = 3840,
+	.height = 2160,
+};
+
 struct IMX283_reg_list {
 	unsigned int num_of_regs;
 	const struct cci_reg_sequence *regs;
@@ -332,6 +345,7 @@ enum imx283_modes {
 	IMX283_MODE_4,
 	IMX283_MODE_5,
 	IMX283_MODE_6,
+	IMX283_MODE_1C,	/* UHD 4K (3840x2160) 16:9 crop */
 };
 
 struct imx283_readout_mode {
@@ -363,6 +377,9 @@ static const struct imx283_readout_mode imx283_readout_modes[] = {
 
 	/* Vertical 2 binning horizontal 2/4, subsampling 16:9 cropping */
 	[IMX283_MODE_6] = { 0x18, 0x21, 0x00, 0x09 }, /* 10 bit */
+
+	/* UHD 4K (3840x2160) 16:9 crop readout */
+	[IMX283_MODE_1C] = { 0x30, 0x41, 0x00, 0x00 }, /* 10 bit */
 };
 
 static const struct cci_reg_sequence mipi_data_rate_1440Mbps[] = {
@@ -1005,6 +1022,23 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.horizontal_ob = 48,
 		.vertical_ob = 4,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
+	},
+	{
+		/* 3936x2176 (3840x2160 active) 60.16fps readout mode 1C - UHD 4K 16:9 crop */
+		.mode = IMX283_MODE_1C,
+		.bpp = 10,
+		.width = 3840 + 96,
+		.height = 2160 + 16,
+		.min_HMAX = 544,
+		.min_VMAX = 2200,
+		.default_HMAX = 576,
+		.default_VMAX = 2500,
+		.min_SHR = 12,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_UHD_area, 3840, 2160),
 	},
 };
 

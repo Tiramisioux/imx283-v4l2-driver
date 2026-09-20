@@ -107,5 +107,13 @@
 		       <&cam_node>, "clocks:0=",<&cam0_clk>,
 		       <&cam_node>, "VANA-supply:0=",<&cam0_reg>;
 		always-on = <0>, "+99";
+		/*
+		 * imx283.c validates against link_frequencies[] = { 720 MHz,
+		 * 360 MHz } and rejects anything else at probe, so the only
+		 * other accepted value is 360000000 (720 Mbps/lane). Without
+		 * this override the endpoint's 720 MHz was the sole reachable
+		 * setting, even though the driver has always taken both.
+		 */
+		link-frequency = <&cam_endpoint>,"link-frequencies#0";
 	};
 };
