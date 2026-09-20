@@ -449,7 +449,19 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.height = (_height), \
 	}
 
-/* Mode configs */
+/*
+ * Mode configs.
+ *
+ * WP-283-3: do not derive a shorter VMAX from a shorter vertical crop.
+ * Mainline has no crop modes at all, so there is no mainline precedent
+ * for a per-crop VMAX floor, and this sensor's own binned modes (2, 2A,
+ * 3) already carry a *higher* min_VMAX than the uncropped 1x1 mode 0
+ * despite reading out far fewer lines -- VMAX counts sensor scan lines,
+ * not output lines, so "shorter crop, so lower VMAX" does not follow.
+ * Every Mode-0 crop entry below correctly keeps the full-frame
+ * min_VMAX/default_VMAX. A per-crop floor needs the datasheet or a
+ * measured Pi sweep (a separate package), not an assumption here.
+ */
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
 		/* 5568x3664 21.40fps readout mode 0 */
@@ -497,6 +509,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.default_HMAX = 375,
 		.default_VMAX = 3300,
 		.min_SHR = 12,
+		/*
+		 * Same 2x2 binning family as IMX283_MODE_2 (mdsel1 0x0d,
+		 * "Horizontal / Vertical 2/2-line binning", no subsampling),
+		 * so it gets mainline's veff for 2x2 binning (WP-283-3).
+		 */
+		.veff = 1824,
+		.vst = 0,
+		.vct = 0,
 		.hbin_ratio = 2,
 		.vbin_ratio = 2,
 		.horizontal_ob = 48,
@@ -1034,6 +1054,15 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.default_HMAX = 576,
 		.default_VMAX = 2500,
 		.min_SHR = 12,
+		/*
+		 * 1x1, no binning; every other 1x1 entry in this file (and
+		 * mainline's mode 0) uses veff 3694 (WP-283-3). Landed via
+		 * the Pi-validated 6.12.y merge (WP-283-1), unlike this
+		 * fork's own unvalidated 1S/4/5/6 additions.
+		 */
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
 		.hbin_ratio = 1,
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
@@ -1764,6 +1793,15 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		 * Mode 0 is the 12-bit 1x1 readout. This branch enables the
 		 * sensor's arbitrary vertical-crop path for the fixed crop
 		 * variants in supported_modes_12bit[].
+		 *
+		 * WP-283-3 checked this against mainline
+		 * (raspberrypi/linux rpi-6.12.y drivers/media/i2c/imx283.c):
+		 * mainline enables VCROP_EN for every mode, this fork only
+		 * for Mode 0. Kept as Mode-0-only: veff is unset (0) on
+		 * IMX283_MODE_1S/_4/_5/_6 (intentionally experimental, see
+		 * EXPERIMENTAL_CROPS.md), so enabling VCROP_EN there today
+		 * would read a zero veff and drive VWIDCUT negative. Widen
+		 * this gate only alongside a veff audit of those modes.
 		 */
 		cci_write(imx283, IMX283_REG_MDSEL3,
 			  readout->mdsel3 | IMX283_MDSEL3_VCROP_EN, &ret);
@@ -1796,7 +1834,16 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 	}
 
-	/* Configure horizontal cropping. */
+	/*
+	 * Configure horizontal cropping.
+	 *
+	 * WP-283-3: mainline writes HTRIMMING_END = crop.left + crop.width;
+	 * this fork has always written + 1. This runs for every mode, not
+	 * only the Mode-0 crops, so it is left unchanged pending the G8 Pi
+	 * gate (chart take, checked for correct centring and no wrap)
+	 * rather than changed without a hardware read-back or datasheet
+	 * copy of the register's exact start/end semantics.
+	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_START, mode->crop.left, &ret);
