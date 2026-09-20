@@ -45,7 +45,7 @@ The mode table also records the IMX283 horizontal/vertical binning ratios. Curre
 - Mode 2A: 2736x1538 active pixels, 2x2 binning
 - Mode 3: 1824x1216 active pixels, 3x3 binning
 
-Sony documents additional 12-bit readout modes 4 (1824x370) and 5 (1824x190), and a 10-bit mode 6 (2736x1538). These are deliberately not enabled yet because their timing/crop programming needs hardware validation before exposing them to libcamera.
+Sony documents additional 12-bit readout modes 4 (1824x370) and 5 (1824x190), and a 10-bit mode 6 (2736x1538). Their table entries exist but are kept out of the default mode list (see the `experimental_modes` module parameter below) because their timing/crop programming needs hardware validation before exposing them to libcamera by default.
 
 The Sony IMX283 product information also explicitly documents arbitrary horizontal and vertical cropping, and lists the native readout modes and maximum frame rates. See the Sony product information referenced in the project notes before treating the high-speed modes as production-ready.
 
@@ -67,7 +67,34 @@ The driver now exposes all readout modes listed in Sony's IMX283 documentation:
 | 5 | 1824×190 | 12 | 452.03 fps |
 | 6 | 2736×1538 | 10 | 60.01 fps |
 
-Modes 1S, 4, 5 and 6 are newly exposed on this branch. Their timing values are derived from Sony's published maximum frame rates and the driver's existing 72 MHz HMAX representation. **These four modes are intentionally experimental: the HMAX/VMAX values and crop/subsampling interpretation must be validated on hardware.**
+Modes 1S, 4, 5 and 6 are newly exposed on this branch. Their timing values are derived from Sony's published maximum frame rates and the driver's existing 72 MHz HMAX representation. **These four modes are intentionally experimental: the HMAX/VMAX values and crop/subsampling interpretation must be validated on hardware.** Modes 4 and 5 additionally produce frames (374 and 194 output rows) shorter than CineMate's 720-line preview stream and cannot survive its launch path today, independent of the timing question.
+
+### `experimental_modes` module parameter (WP-283-4)
+
+Because 1S, 4, 5 and 6 are unvalidated, they are kept out of the mode list by default, so neither
+`--list-cameras` nor libcamera's format enumeration sees them. Each entry in `supported_modes_12bit[]` /
+`supported_modes_10bit[]` carries a `.experimental` flag, set only on IMX283_MODE_1S, _4, _5 and
+_6; `get_mode_table()` omits flagged entries unless the module is loaded with
+`experimental_modes=1` (e.g. `modprobe imx283 experimental_modes=1`, or a
+`dtoverlay=imx283,experimental_modes=1` param line, depending on how the overlay wires module
+params through). It is read-only at sysfs (`module_param(..., 0444)`): reload the module to change
+it, matching that these timings are meant to be tried deliberately, not toggled live.
+
+With the parameter off (the default), the driver behaves exactly as it did before these four modes
+existed: `--list-cameras` and format negotiation only ever see the shipped/validated readouts (0,
+1, 1A, 2, 2A, 3, 1C, and the Mode-0 crop family).
+
+With it on, all four come back with no other change to the list.
+
+The entries themselves are not deleted — they are the record of this work and the path to
+validating them. What clears each one:
+
+| Mode | What's unvalidated | Clears when |
+|---|---|---|
+| 1S (3000x3000, 10-bit) | HMAX/VMAX derived from Sony's published 42.96 fps, never measured | A hardware take confirms real image content, correct framing and no wrap at the derived timing (part of the G8 Pi gate) |
+| 4 (1824x370, 12-bit, claimed 240 fps) | Same timing-derivation gap as 1S, plus vertical subsampling instead of binning is unverified | Hardware validation of the timing *and* a preview-stream policy that can serve a mode narrower than CineMate's 720-line requirement (a stack-side change, not just a driver one) |
+| 5 (1824x190, 12-bit, claimed 452 fps) | Same as mode 4 | Same as mode 4 |
+| 6 (2736x1538, 10-bit, claimed 60.01 fps) | Same timing-derivation gap as 1S | A hardware take confirms real image content, correct framing and no wrap at the derived timing |
 
 Sony documents arbitrary horizontal and vertical cropping, so the driver continues to report the selected analog crop through the V4L2 sub-device selection API. The very-high-speed modes 4 and 5 use vertical subsampling rather than ordinary 3×3 vertical binning; their reported vbin_ratio is therefore kept at 1.
 
