@@ -22,6 +22,22 @@
 #include <media/v4l2-fwnode.h>
 #include <media/v4l2-mediabus.h>
 
+/*
+ * Read-only mode-geometry controls (WP-283-5). Named, not identified: the
+ * stack discovers "Mode Binning" / "Mode Crop Left" / "Mode Crop Top" /
+ * "Mode Crop Width" / "Mode Crop Height" by their exact V4L2_CTRL_TYPE_INTEGER
+ * name on whichever custom control base a given sensor driver picks, per
+ * DEC-4. The ids below only need to be unique within this driver.
+ */
+#ifndef V4L2_CID_USER_IMX283_BASE
+#define V4L2_CID_USER_IMX283_BASE (V4L2_CID_USER_BASE + 0x2100)
+#endif
+
+#define V4L2_CID_IMX283_MODE_BINNING     (V4L2_CID_USER_IMX283_BASE + 0)
+#define V4L2_CID_IMX283_MODE_CROP_LEFT   (V4L2_CID_USER_IMX283_BASE + 1)
+#define V4L2_CID_IMX283_MODE_CROP_TOP    (V4L2_CID_USER_IMX283_BASE + 2)
+#define V4L2_CID_IMX283_MODE_CROP_WIDTH  (V4L2_CID_USER_IMX283_BASE + 3)
+#define V4L2_CID_IMX283_MODE_CROP_HEIGHT (V4L2_CID_USER_IMX283_BASE + 4)
 
 struct cci_reg_sequence {
 	u32 reg;
@@ -1149,6 +1165,19 @@ struct imx283 {
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *hblank;
 
+	/*
+	 * Read-only mode-geometry metadata (WP-283-5), updated whenever the
+	 * active mode changes. Values are the driver's own hbin_ratio and
+	 * the mode->crop rectangle, both already in native sensor-pixel
+	 * coordinates -- no domain conversion is needed here, unlike a
+	 * sensor whose crop is stored in the output domain.
+	 */
+	struct v4l2_ctrl *mode_binning_ctrl;
+	struct v4l2_ctrl *mode_crop_left_ctrl;
+	struct v4l2_ctrl *mode_crop_top_ctrl;
+	struct v4l2_ctrl *mode_crop_width_ctrl;
+	struct v4l2_ctrl *mode_crop_height_ctrl;
+
 	/* Current mode */
 	const struct imx283_mode *mode;
 
@@ -1575,6 +1604,38 @@ static const struct v4l2_ctrl_ops imx283_ctrl_ops = {
 	.s_ctrl = imx283_set_ctrl,
 };
 
+/*
+ * Read-only mode-geometry controls (WP-283-5). .max on the crop controls
+ * mirrors imx283_native_area's width/height (5592 x 3710): a designated
+ * initializer cannot reference another static const struct's field here,
+ * so the native array size is repeated as a literal.
+ */
+static const struct v4l2_ctrl_config imx283_cfg_mode_binning = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_BINNING,
+	.name = "Mode Binning", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 1, .max = 3, .step = 1, .def = 1,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_crop_left = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_CROP_LEFT,
+	.name = "Mode Crop Left", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 0, .max = 5592, .step = 1, .def = 0,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_crop_top = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_CROP_TOP,
+	.name = "Mode Crop Top", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 0, .max = 3710, .step = 1, .def = 0,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_crop_width = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_CROP_WIDTH,
+	.name = "Mode Crop Width", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 0, .max = 5592, .step = 1, .def = 5592,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_crop_height = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_CROP_HEIGHT,
+	.name = "Mode Crop Height", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 0, .max = 3710, .step = 1, .def = 3710,
+};
+
 static int imx283_enum_mbus_code(struct v4l2_subdev *sd,
 				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_mbus_code_enum *code)
@@ -1658,12 +1719,32 @@ static int imx283_get_pad_format(struct v4l2_subdev *sd,
 }
 
 /* TODO */
+/*
+ * Report the active mode's real binning and sensor crop through the
+ * read-only "Mode Binning" / "Mode Crop *" controls (WP-283-5, DEC-4).
+ * mode->crop is already in native sensor-pixel coordinates (see the
+ * imx283_mode field comment and CENTERED_RECTANGLE), so it is reported
+ * as-is. hbin_ratio and vbin_ratio differ on a few entries (the 3x1
+ * horizontal-only-binning modes); DEC-4 says report the horizontal ratio
+ * in that case, which is what "Mode Binning" always does here.
+ */
+static void imx283_update_mode_metadata(struct imx283 *imx283,
+					 const struct imx283_mode *mode)
+{
+	__v4l2_ctrl_s_ctrl(imx283->mode_binning_ctrl, mode->hbin_ratio);
+	__v4l2_ctrl_s_ctrl(imx283->mode_crop_left_ctrl, mode->crop.left);
+	__v4l2_ctrl_s_ctrl(imx283->mode_crop_top_ctrl, mode->crop.top);
+	__v4l2_ctrl_s_ctrl(imx283->mode_crop_width_ctrl, mode->crop.width);
+	__v4l2_ctrl_s_ctrl(imx283->mode_crop_height_ctrl, mode->crop.height);
+}
+
 static void imx283_set_framing_limits(struct imx283 *imx283)
 {
 	const struct imx283_mode *mode = imx283->mode;
 	u64 def_hblank;
 	u64 pixel_rate;
 
+	imx283_update_mode_metadata(imx283, mode);
 
 	imx283->vmax = mode->default_VMAX;
 	imx283->hmax = mode->default_HMAX;
@@ -2160,7 +2241,7 @@ static int imx283_init_controls(struct imx283 *imx283)
 	int ret;
 
 	ctrl_hdlr = &imx283->ctrl_handler;
-	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 16);
+	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 21);
 	if (ret)
 		return ret;
 
@@ -2186,6 +2267,42 @@ static int imx283_init_controls(struct imx283 *imx283)
 						   0, link_frequencies);
 	if (imx283->link_freq)
 		imx283->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
+	/*
+	 * Read-only mode-geometry controls (WP-283-5). Flagged read-only
+	 * after creation and written from inside the driver with
+	 * __v4l2_ctrl_s_ctrl, which bypasses the read-only refusal that
+	 * only applies to the user-space ioctl path -- the same shape the
+	 * imx585 driver uses for its own "Mode Binning" / "Mode Crop *"
+	 * controls. Actual values are set below by imx283_set_framing_limits()
+	 * via imx283_update_mode_metadata(), which also runs on every later
+	 * mode change.
+	 */
+	imx283->mode_binning_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							 &imx283_cfg_mode_binning,
+							 NULL);
+	imx283->mode_crop_left_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							   &imx283_cfg_mode_crop_left,
+							   NULL);
+	imx283->mode_crop_top_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							  &imx283_cfg_mode_crop_top,
+							  NULL);
+	imx283->mode_crop_width_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							    &imx283_cfg_mode_crop_width,
+							    NULL);
+	imx283->mode_crop_height_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							     &imx283_cfg_mode_crop_height,
+							     NULL);
+	if (imx283->mode_binning_ctrl)
+		imx283->mode_binning_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_crop_left_ctrl)
+		imx283->mode_crop_left_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_crop_top_ctrl)
+		imx283->mode_crop_top_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_crop_width_ctrl)
+		imx283->mode_crop_width_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_crop_height_ctrl)
+		imx283->mode_crop_height_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/* Initial vblank/hblank/exposure based on the current mode. */
 	imx283->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
