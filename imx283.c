@@ -208,6 +208,22 @@ struct cci_reg_sequence {
 
 #define IMAGE_PAD			0
 
+/*
+ * Readout modes 1S, 4, 5 and 6 (added by this branch) carry HMAX/VMAX
+ * timings derived only from Sony's published maximum frame rates, not
+ * from hardware validation; see EXPERIMENTAL_CROPS.md. Modes 4 and 5
+ * also produce frames shorter than CineMate's 720-line preview stream
+ * and cannot survive its launch path today. Keep them out of the
+ * default mode list (struct imx283_mode.experimental, checked in
+ * get_mode_table()) until they clear hardware validation; a module
+ * owner who wants to exercise them anyway can still load the driver
+ * with experimental_modes=1.
+ */
+static bool experimental_modes;
+module_param(experimental_modes, bool, 0444);
+MODULE_PARM_DESC(experimental_modes,
+		  "Enable unvalidated readout modes 1S, 4, 5 and 6 (default: off, see EXPERIMENTAL_CROPS.md)");
+
 /* imx283 native and active pixel array size. */
 static const struct v4l2_rect imx283_native_area = {
 	.top = 0,
@@ -283,6 +299,13 @@ struct imx283_mode {
 
 	/* Analog crop rectangle. */
 	struct v4l2_rect crop;
+
+	/*
+	 * Set on entries whose timing is unvalidated on hardware (see the
+	 * experimental_modes module parameter above). get_mode_table()
+	 * omits these unless experimental_modes is set.
+	 */
+	bool experimental;
 };
 
 struct imx283_input_frequency {
@@ -565,6 +588,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.horizontal_ob = 32,
 		.vertical_ob = 4,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+		.experimental = true,
 	},
 	{
 		/*
@@ -588,6 +612,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.horizontal_ob = 32,
 		.vertical_ob = 4,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+		.experimental = true,
 	},
 	{
 		/* Mode 0, 12-bit 1x1, 3:2 crop */
@@ -1001,6 +1026,7 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3000),
+		.experimental = true,
 	},
 	{
 		/*
@@ -1022,6 +1048,7 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.horizontal_ob = 48,
 		.vertical_ob = 4,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
+		.experimental = true,
 	},
 	{
 		/* 3936x2176 (3840x2160 active) 60.16fps readout mode 1C - UHD 4K 16:9 crop */
@@ -1237,26 +1264,72 @@ static inline struct imx283 *to_imx283(struct v4l2_subdev *_sd)
 	return container_of(_sd, struct imx283, sd);
 }
 
+/*
+ * Copy the entries of `src` into `dst` (sized by the caller to hold all of
+ * `src_count` of them), skipping `.experimental` entries unless
+ * experimental_modes is set. Returns the number of entries copied.
+ *
+ * Filtering here, once, keeps every other mode's position and count
+ * unchanged in the returned list; nothing but the four experimental
+ * entries (IMX283_MODE_1S/_4/_5/_6, see the module parameter above) is
+ * affected.
+ */
+static unsigned int build_filtered_mode_table(const struct imx283_mode *src,
+					       unsigned int src_count,
+					       struct imx283_mode *dst)
+{
+	unsigned int i, n = 0;
+
+	for (i = 0; i < src_count; i++) {
+		if (src[i].experimental && !experimental_modes)
+			continue;
+		dst[n++] = src[i];
+	}
+
+	return n;
+}
+
 static inline void get_mode_table(unsigned int code,
 				  const struct imx283_mode **mode_list,
 				  unsigned int *num_modes)
 {
+	static struct imx283_mode filtered_12bit[ARRAY_SIZE(supported_modes_12bit)];
+	static struct imx283_mode filtered_10bit[ARRAY_SIZE(supported_modes_10bit)];
+	static unsigned int num_filtered_12bit;
+	static unsigned int num_filtered_10bit;
+	static bool filtered_tables_built;
+
+	/*
+	 * experimental_modes is a boot-time-only parameter (module_param
+	 * ... 0444, no runtime write), so the filtered tables never need
+	 * to be rebuilt once populated.
+	 */
+	if (!filtered_tables_built) {
+		num_filtered_12bit = build_filtered_mode_table(supported_modes_12bit,
+								ARRAY_SIZE(supported_modes_12bit),
+								filtered_12bit);
+		num_filtered_10bit = build_filtered_mode_table(supported_modes_10bit,
+								ARRAY_SIZE(supported_modes_10bit),
+								filtered_10bit);
+		filtered_tables_built = true;
+	}
+
 	switch (code) {
 	/* 12-bit */
 	case MEDIA_BUS_FMT_SRGGB12_1X12:
 	case MEDIA_BUS_FMT_SGRBG12_1X12:
 	case MEDIA_BUS_FMT_SGBRG12_1X12:
 	case MEDIA_BUS_FMT_SBGGR12_1X12:
-		*mode_list = supported_modes_12bit;
-		*num_modes = ARRAY_SIZE(supported_modes_12bit);
+		*mode_list = filtered_12bit;
+		*num_modes = num_filtered_12bit;
 		break;
 	/* 10-bit */
 	case MEDIA_BUS_FMT_SRGGB10_1X10:
 	case MEDIA_BUS_FMT_SGRBG10_1X10:
 	case MEDIA_BUS_FMT_SGBRG10_1X10:
 	case MEDIA_BUS_FMT_SBGGR10_1X10:
-		*mode_list = supported_modes_10bit;
-		*num_modes = ARRAY_SIZE(supported_modes_10bit);
+		*mode_list = filtered_10bit;
+		*num_modes = num_filtered_10bit;
 		break;
 	default:
 		*mode_list = NULL;
