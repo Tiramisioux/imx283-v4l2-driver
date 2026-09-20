@@ -70,3 +70,27 @@ The driver now exposes all readout modes listed in Sony's IMX283 documentation:
 Modes 1S, 4, 5 and 6 are newly exposed on this branch. Their timing values are derived from Sony's published maximum frame rates and the driver's existing 72 MHz HMAX representation. **These four modes are intentionally experimental: the HMAX/VMAX values and crop/subsampling interpretation must be validated on hardware.**
 
 Sony documents arbitrary horizontal and vertical cropping, so the driver continues to report the selected analog crop through the V4L2 sub-device selection API. The very-high-speed modes 4 and 5 use vertical subsampling rather than ordinary 3×3 vertical binning; their reported vbin_ratio is therefore kept at 1.
+
+## WP-283-3: vertical-crop mechanism verified against mainline
+
+Compared `imx283_start_streaming()` against `raspberrypi/linux` `rpi-6.12.y`
+`drivers/media/i2c/imx283.c` (local copy: `reference/imx283-mainline-rpi-6.12.y.c` in the
+`experimental-crop-modes` planning tree, fetched 2026-09-20). Summary: the vertical-crop
+arithmetic (`y_out_size`/`write_v_size`/`v_pos`/`v_widcut` from `veff`/`vst`/`vct`) is a faithful
+port of mainline's, so finding X4 (arbitrary vertical cropping is unproven ground) is a port, not
+an invention. Two behavioural divergences and one data gap remain, all desk-checked here and left
+for the G8 Pi gate (chart take, checked for correct centring, correct size, and no wrap) to confirm.
+
+| | mainline | this fork | verdict |
+|---|---|---|---|
+| VCROP_EN (MDSEL3/MDSEL4) scope | enabled for every mode | enabled for `IMX283_MODE_0` only | **Deliberate and safe as-is.** Only Mode 0 has a validated `veff`/`vst`/`vct` and a real arbitrary-crop use (the 18 fixed crops). Widening the gate to every mode today would read `veff == 0` on `IMX283_MODE_1S`/`_4`/`_5`/`_6` and drive `VWIDCUT` negative. Revisit only alongside a `veff` audit of those four modes. No code change. |
+| `HTRIMMING_END` | `crop.left + crop.width` | `crop.left + crop.width + 1` | **Unresolved, not changed.** This line runs for every mode, so a wrong guess would move the horizontal window on every readout, not just the new crops. Needs a hardware read-back or the datasheet's exact HTRIMMING start/end semantics (inclusive vs. exclusive end) before touching it; the G8 chart take is the place to catch a one-column miscentre or wrap if it matters. No code change. |
+| `veff` set on every mode that is wired for the crop arithmetic (`hbin_ratio == vbin_ratio`, no subsampling) | n/a (mainline only defines modes 0/2/3: `veff` 3694/1824/1234) | `IMX283_MODE_1C` and `IMX283_MODE_2A` were missing `veff` (would silently compute `VWIDCUT` against 0) | **Fixed in this package.** `IMX283_MODE_1C` (1x1, landed via the Pi-validated 6.12.y merge, WP-283-1) gets `veff = 3694`, matching mode 0 and every one of this file's other 1x1 entries. `IMX283_MODE_2A` (2x2 binning, same `mdsel1` family as `IMX283_MODE_2`, no subsampling) gets `veff = 1824`, matching mainline's 2x2 value. `IMX283_MODE_1S`, `_4`, `_5`, `_6` are **left unset**: this file already names all four "intentionally experimental: the HMAX/VMAX values and crop/subsampling interpretation must be validated on hardware" (above), so inventing a `veff` for them here would be a guess dressed as a fix. `IMX283_MODE_1`, `_1A`, `_2` also have no `veff`/`hbin_ratio`/`vbin_ratio`, but that is a pre-existing, larger gap (missing binning ratios too, not just `veff`) outside this package's scope — noted, not touched. |
+| Per-crop VMAX floor | no crop modes exist in mainline, so no precedent | uniform full-frame `min_VMAX`/`default_VMAX` kept on every Mode-0 crop entry | **No change, and none should be made without new data.** This sensor's own binned modes (2, 2A, 3) already carry a *higher* `min_VMAX` than the uncropped 1x1 mode 0 despite far fewer output lines — VMAX counts sensor scan lines, not output lines, so "shorter crop ⇒ lower VMAX" does not hold here. A per-crop floor needs the datasheet or a measured Pi sweep, per the code comment above `supported_modes_12bit[]`. |
+
+Desk-check method for the `veff` row: `check_veff.py` (kept with the WP-283-3 work, not part of this
+repo) parses `supported_modes_12bit[]`/`supported_modes_10bit[]` and asserts that every entry with
+`hbin_ratio == vbin_ratio` and no subsampling caveat carries the mainline-correspondence `veff` for
+that ratio (1×1 → 3694, 2×2 → 1824, 3×3 → 1234). It failed against the pre-fix tree, naming exactly
+`IMX283_MODE_1C`, `IMX283_MODE_1S`, and `IMX283_MODE_2A`; it passes after the two in-scope fixes,
+with `IMX283_MODE_1S`/`_4`/`_5`/`_6` reported exempt by name (not silently skipped).
