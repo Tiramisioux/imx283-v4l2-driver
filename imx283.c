@@ -1133,38 +1133,42 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 *    i.e. 620 px to the right -- a visible reframing of this
 		 *    mode, and the fix for it if 236 was ever honoured.
 		 *
-		 * So the two halves are fixed separately, because only one of
-		 * them can be fixed without a camera pointed at something:
+		 * Centred, like every other entry in this file. Landing this
+		 * was split over two commits and the reasoning is worth
+		 * keeping, because the two coordinates are not the same kind
+		 * of thing:
 		 *
-		 *  - .top becomes 852, the centred value. It is metadata here,
-		 *    so this removes the negative analogCrop and changes no
-		 *    register. 852 = imx283_active_area.top + (3648-2160)/2,
-		 *    written out because a static initialiser cannot read a
-		 *    member of another object.
-		 *  - .left stays at 236. Centring it would be a 620 px
-		 *    reframing of a mode the Pi was observed streaming, on no
-		 *    evidence beyond "every other entry is centred" -- and the
-		 *    chart take that would settle it has to be shot against
-		 *    the framing that ships, or it measures the wrong thing.
+		 *  - .top is metadata for this entry. The arbitrary
+		 *    vertical-crop path in imx283_start_streaming() is
+		 *    Mode-0-only, and 0x30's mdsel3/mdsel4 do not set the
+		 *    VCROP_EN bits, so VWINPOS/VWIDCUT are never written here.
+		 *    852 removes the negative analogCrop and changes nothing
+		 *    the sensor does.
+		 *  - .left is NOT metadata: it is written as HTRIMMING_START
+		 *    for every mode, so 236 -> 856 may move the real window
+		 *    620 columns right. It was held back one commit for
+		 *    exactly that reason, then changed deliberately, because
+		 *    every branch of the question wants 856:
+		 *      * if HTRIMMING_START is honoured in drive mode 0x30,
+		 *        856 is what actually centres the picture -- which is
+		 *        the behaviour this mode advertises and the operator
+		 *        asked for twice;
+		 *      * if 0x30 hardwires its own window and ignores
+		 *        HTRIMMING, 856 makes the metadata agree with a
+		 *        centred window, which is what Sony's UHD crop modes
+		 *        are and what every other entry here claims.
+		 *    The only reading that favours 236 is "0x30 hardwires an
+		 *    off-centre window and 7751c32 knew it", and nothing
+		 *    supports that: the number arrived with no derivation and
+		 *    the comment that later defended it cited nothing.
 		 *
-		 * The rectangle below is therefore honest rather than tidy: it
-		 * says where this mode actually reads from, as far as anything
-		 * here knows, and it satisfies every invariant
-		 * imx283_check_mode_table() enforces. Hardware check that
-		 * settles .left (G8-class): shoot one chart in full-frame
-		 * Mode 0 and one in this mode, and compare centres. If the 4K
-		 * frame is centred, 236 is being ignored by drive mode 0x30
-		 * and .left should become 856 to match the metadata. If it
-		 * sits 620 px left of centre, 236 is honoured and 856 is the
-		 * fix -- for the framing as well as the metadata. Record the
-		 * chart frame here either way.
+		 * Still worth confirming on a chart, and now cheap to do: the
+		 * UHD frame should be the centre of the full-frame Mode 0
+		 * frame in both axes. If it comes back offset, the offset
+		 * measured there is the number to write -- with the chart
+		 * frame recorded next to it this time.
 		 */
-		.crop = {
-			.left   = 236,
-			.top    = 852,
-			.width  = 3840,
-			.height = 2160,
-		},
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 2160),
 	},
 };
 
