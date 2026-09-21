@@ -1736,20 +1736,32 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 					fmt->format.height);
 	imx283_update_image_pad_format(imx283, mode, fmt);
 
-	/*
-	 * Keep the V4L2 selection state synchronized with the selected
-	 * sensor mode. libcamera uses the subdev crop selection when it
-	 * describes the sensor mode and its active pixel rectangle. This
-	 * is particularly important for the fixed crop modes in this
-	 * experimental branch: the output format and the sensor crop are
-	 * intentionally different (the crop excludes optical-black pixels).
-	 */
-	*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = mode->crop;
-
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		framefmt = v4l2_subdev_state_get_format(sd_state,
 							fmt->pad);
 		*framefmt = fmt->format;
+
+		/*
+		 * Keep the TRY crop in step with the TRY format, so a caller
+		 * that probes a mode and then reads its crop back sees the
+		 * pair that belongs together. The two deliberately differ in
+		 * size: mode->width/height include the optical-black margin
+		 * that the sensor actually streams, while mode->crop is the
+		 * active rectangle alone, in native pixel-array coordinates,
+		 * which is what libcamera wants from V4L2_SEL_TGT_CROP.
+		 *
+		 * Only the TRY state is touched. This driver still uses the
+		 * legacy subdev state model -- internal_ops.open seeds the
+		 * per-file TRY state and v4l2_subdev_init_finalize() is never
+		 * called -- so sd->active_state is NULL, and an ACTIVE S_FMT
+		 * reaches this op with sd_state == NULL. Writing the crop
+		 * unconditionally therefore dereferenced NULL and oopsed the
+		 * kernel the moment libcamera configured a mode (found on a
+		 * CM5 with kernel 6.12.93, Comm: cinepi-raw). The ACTIVE crop
+		 * needs no store: imx283_get_selection() answers it straight
+		 * from imx283->mode->crop, see __imx283_get_pad_crop().
+		 */
+		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = mode->crop;
 	} else if (imx283->mode != mode) {
 		imx283->mode = mode;
 		imx283->fmt_code = fmt->format.code;
