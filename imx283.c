@@ -521,6 +521,31 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.default_HMAX = 375,
 		.default_VMAX = 3840,
 		.min_SHR = 12,
+		/*
+		 * 2x2 binning, same readout family as IMX283_MODE_2A (mdsel1
+		 * 0x0d, "Horizontal / Vertical 2/2-line binning"), which is
+		 * also why the output is half the array in both axes. These
+		 * five fields were absent until now and therefore zero, and
+		 * a zero hbin_ratio is not harmless: it is what
+		 * imx283_update_mode_metadata() feeds to the read-only "Mode
+		 * Binning" control, whose .min = 1 quietly clamped it to 1, so
+		 * the Pi advertised this 2x2 mode as "binning 1x1". libcamera
+		 * derives its own binning from analogCrop.width /
+		 * outputSize.width and the IPA uses it for black level and
+		 * lens shading, so the wrong ratio is not cosmetic.
+		 *
+		 * veff is mainline's value for 2x2 binning (WP-283-3), the
+		 * same one MODE_2A carries. It is unused today -- the
+		 * arbitrary vertical-crop path in imx283_start_streaming() is
+		 * Mode-0-only -- but a zero left here is a live trap for
+		 * anyone who widens that gate, because VWIDCUT would go
+		 * negative.
+		 */
+		.veff = 1824,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 2,
+		.vbin_ratio = 2,
 		.horizontal_ob = 96/2,
 		.vertical_ob = 8/2,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
@@ -926,6 +951,21 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.default_HMAX = 750,
 		.default_VMAX = 3840,
 		.min_SHR = 12,
+		/*
+		 * All-pixel 1x1 readout (mdsel1 0x04), so the binning ratios
+		 * are 1. They were absent until now, which happened to report
+		 * correctly only because imx283_cfg_mode_binning has .min = 1
+		 * and the control clamped the zero back up; nobody should have
+		 * to rely on that. veff is mainline's 1x1 value (WP-283-3),
+		 * spelled out for the same reason as on MODE_2: unused while
+		 * the vertical-crop path stays Mode-0-only, a negative VWIDCUT
+		 * waiting to happen if that gate is ever widened.
+		 */
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
@@ -941,6 +981,18 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.default_HMAX = 750,
 		.default_VMAX = 3840,
 		.min_SHR = 12,
+		/*
+		 * Same all-pixel 1x1 scan as MODE_1 with the sensor's own
+		 * 16:9 vertical crop (mdsel3/mdsel4 carry the VCROP_EN bits),
+		 * so the array is scanned the same way and veff is unchanged;
+		 * what differs is how many of those lines come out. Same
+		 * reasoning as MODE_1 for why these five are spelled out.
+		 */
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3078),
@@ -1296,6 +1348,61 @@ static unsigned int build_filtered_mode_table(const struct imx283_mode *src,
 	}
 
 	return n;
+}
+
+/*
+ * Probe-time self-check on the mode tables above.
+ *
+ * Both defects this exists for shipped as plain omissions in static data
+ * that nothing in the driver ever looked at, and both only surfaced when
+ * a human read `--list-cameras` on a Pi:
+ *
+ *  - IMX283_MODE_1C advertised a crop with .top = 0, outside the active
+ *    area, so libcamera's analogCrop origin came out negative;
+ *  - IMX283_MODE_2 omitted its binning ratios, so a 2x2-binned mode
+ *    advertised "binning 1x1" (the control's .min = 1 hid the zero).
+ *
+ * Both are one comparison each, and the comparison is cheap enough to
+ * run over every entry on every probe, experimental ones included --
+ * those are exactly the entries nobody has looked at.
+ *
+ * Deliberately a warning, not a probe failure: the tables are
+ * compile-time data, so nothing can be repaired at runtime, and a camera
+ * that still streams with one wrong metadata field is worth more to the
+ * operator than one that refuses to bind. dmesg is where the next reader
+ * of this driver is already looking.
+ */
+static void imx283_check_mode_table(struct device *dev, const char *name,
+				    const struct imx283_mode *modes,
+				    unsigned int count)
+{
+	unsigned int i;
+
+	for (i = 0; i < count; i++) {
+		const struct v4l2_rect *crop = &modes[i].crop;
+		s32 right = crop->left + (s32)crop->width;
+		s32 bottom = crop->top + (s32)crop->height;
+
+		if (crop->left < imx283_active_area.left ||
+		    crop->top < imx283_active_area.top ||
+		    right > imx283_active_area.left + (s32)imx283_active_area.width ||
+		    bottom > imx283_active_area.top + (s32)imx283_active_area.height)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): crop (%d,%d)/%ux%u is not inside the active area (%d,%d)/%ux%u\n",
+				 name, i, modes[i].width, modes[i].height,
+				 modes[i].mode,
+				 crop->left, crop->top, crop->width, crop->height,
+				 imx283_active_area.left, imx283_active_area.top,
+				 imx283_active_area.width,
+				 imx283_active_area.height);
+
+		if (!modes[i].hbin_ratio || !modes[i].vbin_ratio)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): binning ratio unset (h=%u v=%u), advertised binning will be wrong\n",
+				 name, i, modes[i].width, modes[i].height,
+				 modes[i].mode,
+				 modes[i].hbin_ratio, modes[i].vbin_ratio);
+	}
 }
 
 static inline void get_mode_table(unsigned int code,
@@ -1928,6 +2035,11 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		 * EXPERIMENTAL_CROPS.md), so enabling VCROP_EN there today
 		 * would read a zero veff and drive VWIDCUT negative. Widen
 		 * this gate only alongside a veff audit of those modes.
+		 *
+		 * That list of four is exact as of the geometry-field audit
+		 * that gave MODE_1/_1A/_2 their missing veff: before it,
+		 * three non-experimental modes were silently in the same
+		 * state and this comment did not know it.
 		 */
 		cci_write(imx283, IMX283_REG_MDSEL3,
 			  readout->mdsel3 | IMX283_MDSEL3_VCROP_EN, &ret);
@@ -2450,6 +2562,14 @@ static int imx283_probe(struct i2c_client *client)
 	imx283->dev = &client->dev;
 
 	struct device *dev = &client->dev;
+
+	/* Static-data self-check; warns only, see imx283_check_mode_table(). */
+	imx283_check_mode_table(dev, "supported_modes_12bit",
+				supported_modes_12bit,
+				ARRAY_SIZE(supported_modes_12bit));
+	imx283_check_mode_table(dev, "supported_modes_10bit",
+				supported_modes_10bit,
+				ARRAY_SIZE(supported_modes_10bit));
 
 	v4l2_i2c_subdev_init(&imx283->sd, client, &imx283_subdev_ops);
 
