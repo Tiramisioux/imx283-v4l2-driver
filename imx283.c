@@ -255,18 +255,6 @@ static const struct v4l2_rect imx283_active_area = {
 	.height = 3648,
 };
 
-/*
- * UHD 4K readout window for IMX283_MODE_1C. The 0x30 readout drive mode
- * addresses the array differently from the all-pixel modes, so this window
- * is defined explicitly rather than centred on imx283_active_area.
- */
-static const struct v4l2_rect imx283_UHD_area = {
-	.top = 0,
-	.left = 236,
-	.width = 3840,
-	.height = 2160,
-};
-
 struct IMX283_reg_list {
 	unsigned int num_of_regs;
 	const struct cci_reg_sequence *regs;
@@ -1025,7 +1013,90 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_UHD_area, 3840, 2160),
+		/*
+		 * Centred on the active area like every other entry in this
+		 * file, replacing the private `imx283_UHD_area` rectangle
+		 * this entry used to be centred on -- grep that name and you
+		 * land here.
+		 *
+		 * That rectangle was {.left = 236, .top = 0}. Both numbers
+		 * arrived underived in "add UHD mode" (7751c32) and the
+		 * comment that later justified them ("the 0x30 readout drive
+		 * mode addresses the array differently from the all-pixel
+		 * modes", 95183c8) cites nothing -- no datasheet window, no
+		 * register read-back. .top = 0 was provably wrong whatever
+		 * 0x30 does: this field is a *native* pixel-array coordinate
+		 * (imx283_active_area itself starts at .top = 108), so an
+		 * active-pixel rectangle can never start at line 0. libcamera
+		 * builds analogCrop by subtracting the active-area origin and
+		 * duly reported a negative origin on the Pi:
+		 *
+		 *   3936x2176 [60.16 fps - (196, -108)/3840x2160 crop;
+		 *              binning 1x1; mode-crop (236,0)/3840x2160]
+		 *
+		 * against, for a correct mode, mode-crop and analogCrop
+		 * differing by exactly the active origin (40,108). Reading
+		 * .top = 0 as "the window starts at the top of the array" is
+		 * the most likely origin of the bug: right idea, wrong
+		 * coordinate space.
+		 *
+		 * What the registers here can and cannot settle:
+		 *  - 0x30 is a 1x1 *window*, not a subsampling mode: mdsel2
+		 *    0x41 is the all-pixel 10-bit 0x01 plus the same bit 6
+		 *    that IMX283_MODE_1S (the 3000x3000 crop) sets, and no
+		 *    integer decimation can produce this frame -- 3840 active
+		 *    columns would need 7680 of a 5472-column array at 2x, and
+		 *    2160 lines would need 4320 of 3648; 5472/3840 = 1.425 is
+		 *    not a ratio the sensor offers. So .width/.height and
+		 *    hbin/vbin 1x1 above are right. (Do not argue this from
+		 *    the timing floors: min_HMAX and min_VMAX track the OUTPUT
+		 *    frame, not the scanned window. IMX283_MODE_3 bins 3x
+		 *    horizontally -- it scans all 5472 columns -- and still
+		 *    declares min_HMAX 284 against mode 0's 887.)
+		 *  - .crop.top is metadata only for this entry: the arbitrary
+		 *    vertical-crop path in imx283_start_streaming() is
+		 *    Mode-0-only, and 0x30's mdsel3/mdsel4 do not even set the
+		 *    VCROP_EN bits, so VWINPOS/VWIDCUT are never written and
+		 *    the vertical window is whatever drive mode 0x30 hardwires.
+		 *    Nothing in this driver can tell us where that is.
+		 *  - .crop.left is NOT metadata: it is written as
+		 *    HTRIMMING_START for every mode. Centring therefore moves
+		 *    the real horizontal window from native column 236 to 856,
+		 *    i.e. 620 px to the right -- a visible reframing of this
+		 *    mode, and the fix for it if 236 was ever honoured.
+		 *
+		 * So the two halves are fixed separately, because only one of
+		 * them can be fixed without a camera pointed at something:
+		 *
+		 *  - .top becomes 852, the centred value. It is metadata here,
+		 *    so this removes the negative analogCrop and changes no
+		 *    register. 852 = imx283_active_area.top + (3648-2160)/2,
+		 *    written out because a static initialiser cannot read a
+		 *    member of another object.
+		 *  - .left stays at 236. Centring it would be a 620 px
+		 *    reframing of a mode the Pi was observed streaming, on no
+		 *    evidence beyond "every other entry is centred" -- and the
+		 *    chart take that would settle it has to be shot against
+		 *    the framing that ships, or it measures the wrong thing.
+		 *
+		 * The rectangle below is therefore honest rather than tidy: it
+		 * says where this mode actually reads from, as far as anything
+		 * here knows, and it satisfies every invariant
+		 * imx283_check_mode_table() enforces. Hardware check that
+		 * settles .left (G8-class): shoot one chart in full-frame
+		 * Mode 0 and one in this mode, and compare centres. If the 4K
+		 * frame is centred, 236 is being ignored by drive mode 0x30
+		 * and .left should become 856 to match the metadata. If it
+		 * sits 620 px left of centre, 236 is honoured and 856 is the
+		 * fix -- for the framing as well as the metadata. Record the
+		 * chart frame here either way.
+		 */
+		.crop = {
+			.left   = 236,
+			.top    = 852,
+			.width  = 3840,
+			.height = 2160,
+		},
 	},
 };
 
