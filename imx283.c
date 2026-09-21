@@ -38,6 +38,20 @@
 #define V4L2_CID_IMX283_MODE_CROP_TOP    (V4L2_CID_USER_IMX283_BASE + 2)
 #define V4L2_CID_IMX283_MODE_CROP_WIDTH  (V4L2_CID_USER_IMX283_BASE + 3)
 #define V4L2_CID_IMX283_MODE_CROP_HEIGHT (V4L2_CID_USER_IMX283_BASE + 4)
+/*
+ * Where the active picture starts inside the TRANSPORT FRAME -- a different
+ * coordinate space from the "Mode Crop" pair above, which is native sensor
+ * pixels. These two exist so a DNG writer can emit ActiveArea without
+ * guessing where this sensor puts its optical black, which is not derivable
+ * from the sizes: the imx283 emits its horizontal OB columns LEADING and its
+ * vertical OB rows TRAILING, while the imx585's RAW16 modes split their
+ * vertical padding evenly top and bottom and have no horizontal padding at
+ * all. Measured on a CM5 from a 3936x2176 MODE_1C frame: columns 0..95 sit
+ * at the black level and column 96 is the first picture column, rows
+ * 2160..2175 are zero-filled.
+ */
+#define V4L2_CID_IMX283_MODE_ACTIVE_LEFT (V4L2_CID_USER_IMX283_BASE + 5)
+#define V4L2_CID_IMX283_MODE_ACTIVE_TOP  (V4L2_CID_USER_IMX283_BASE + 6)
 
 struct cci_reg_sequence {
 	u32 reg;
@@ -1259,6 +1273,8 @@ struct imx283 {
 	struct v4l2_ctrl *mode_crop_top_ctrl;
 	struct v4l2_ctrl *mode_crop_width_ctrl;
 	struct v4l2_ctrl *mode_crop_height_ctrl;
+	struct v4l2_ctrl *mode_active_left_ctrl;
+	struct v4l2_ctrl *mode_active_top_ctrl;
 
 	/* Current mode */
 	const struct imx283_mode *mode;
@@ -1804,6 +1820,35 @@ static const struct v4l2_ctrl_config imx283_cfg_mode_crop_height = {
 	.min = 0, .max = 3710, .step = 1, .def = 3710,
 };
 
+/*
+ * Where the picture starts inside the frame the sensor actually sends, in
+ * that frame's own pixels -- NOT native sensor coordinates like the four
+ * above. A DNG writer needs exactly this to emit ActiveArea; without it the
+ * optical black ships as part of the image and every renderer draws it.
+ *
+ * Measured on a CM5, both depths and both binnings (see the commit that
+ * added these):
+ *   MODE_1C  3936x2176 10-bit: cols 0..95 at black level, col 96 is picture;
+ *                              rows 2160..2175 zero.
+ *   MODE_2   2784x1828 12-bit: cols 0..47 at black level, col 48 is picture;
+ *                              rows 1824..1827 zero.
+ * i.e. horizontal_ob columns LEADING, vertical_ob rows TRAILING, in the
+ * mode's own (post-binning) pixels. Hence left = horizontal_ob and top = 0.
+ *
+ * The max is the widest frame in either table (5568) rather than the native
+ * array width: this is a frame coordinate, so it can never exceed the frame.
+ */
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_left = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_LEFT,
+	.name = "Mode Active Left", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 0, .max = 5568, .step = 1, .def = 0,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_top = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_TOP,
+	.name = "Mode Active Top", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 0, .max = 3664, .step = 1, .def = 0,
+};
+
 static int imx283_enum_mbus_code(struct v4l2_subdev *sd,
 				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_mbus_code_enum *code)
@@ -1904,6 +1949,14 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 	__v4l2_ctrl_s_ctrl(imx283->mode_crop_top_ctrl, mode->crop.top);
 	__v4l2_ctrl_s_ctrl(imx283->mode_crop_width_ctrl, mode->crop.width);
 	__v4l2_ctrl_s_ctrl(imx283->mode_crop_height_ctrl, mode->crop.height);
+	/*
+	 * Frame coordinates, not sensor coordinates. horizontal_ob/vertical_ob
+	 * are already expressed in this mode's own output pixels (the tables
+	 * divide them by the binning ratio where it applies), so they need no
+	 * scaling here.
+	 */
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl, mode->horizontal_ob);
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
 }
 
 static void imx283_set_framing_limits(struct imx283 *imx283)
@@ -2486,8 +2539,18 @@ static int imx283_init_controls(struct imx283 *imx283)
 		imx283->mode_crop_top_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	if (imx283->mode_crop_width_ctrl)
 		imx283->mode_crop_width_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	imx283->mode_active_left_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							     &imx283_cfg_mode_active_left,
+							     NULL);
+	imx283->mode_active_top_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							    &imx283_cfg_mode_active_top,
+							    NULL);
 	if (imx283->mode_crop_height_ctrl)
 		imx283->mode_crop_height_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_active_left_ctrl)
+		imx283->mode_active_left_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_active_top_ctrl)
+		imx283->mode_active_top_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/* Initial vblank/hblank/exposure based on the current mode. */
 	imx283->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
