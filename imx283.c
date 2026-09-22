@@ -251,6 +251,11 @@ struct cci_reg_sequence {
  */
 static bool experimental_modes;
 module_param(experimental_modes, bool, 0444);
+static bool crop_vmax;
+module_param(crop_vmax, bool, 0444);
+MODULE_PARM_DESC(crop_vmax,
+		  "Use the per-crop VMAX floor on Mode-0 vertical crops (experimental, "
+		  "UNMEASURED: see development/imx283-crop-fps/. Default 0 = full-frame floor.)");
 MODULE_PARM_DESC(experimental_modes,
 		  "Enable unvalidated readout modes 1S, 4, 5 and 6 (default: off, see EXPERIMENTAL_CROPS.md)");
 
@@ -292,6 +297,9 @@ struct imx283_mode {
 
 	/* minimum V-timing */
 	u64 min_VMAX;
+
+	/* Experimental per-crop VMAX floor; zero means use min_VMAX. */
+	u64 crop_min_VMAX;
 
 	/* default H-timing */
 	u64 default_HMAX;
@@ -740,6 +748,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 3080 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 3225,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -760,6 +769,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2956 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 3101,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -780,6 +790,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2896 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 3041,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -800,6 +811,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2880 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 3025,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -820,6 +832,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2736 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 2881,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -840,6 +853,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2488 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 2633,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -860,6 +874,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2464 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 2609,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -880,6 +895,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2328 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 2473,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -900,6 +916,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2288 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 2433,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -920,6 +937,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2188 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 2333,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -940,6 +958,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2144 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 2289,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -1959,6 +1978,13 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
 }
 
+static u64 imx283_min_vmax(const struct imx283_mode *mode)
+{
+	if (crop_vmax && mode->crop_min_VMAX)
+		return mode->crop_min_VMAX;
+	return mode->min_VMAX;
+}
+
 static void imx283_set_framing_limits(struct imx283 *imx283)
 {
 	const struct imx283_mode *mode = imx283->mode;
@@ -1984,7 +2010,7 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	__v4l2_ctrl_s_ctrl(imx283->hblank, def_hblank);
 
 	/* Update limits and set FPS to default */
-	__v4l2_ctrl_modify_range(imx283->vblank, mode->min_VMAX - mode->height,
+	__v4l2_ctrl_modify_range(imx283->vblank, imx283_min_vmax(mode) - mode->height,
 				 IMX283_VMAX_MAX - mode->height,
 				 1, mode->default_VMAX - mode->height);
 	__v4l2_ctrl_s_ctrl(imx283->vblank, mode->default_VMAX - mode->height);
@@ -2555,7 +2581,7 @@ static int imx283_init_controls(struct imx283 *imx283)
 	/* Initial vblank/hblank/exposure based on the current mode. */
 	imx283->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
 					   V4L2_CID_VBLANK,
-					   mode->min_VMAX - mode->height,
+					   imx283_min_vmax(mode) - mode->height,
 					   IMX283_VMAX_MAX, 1,
 					   mode->default_VMAX - mode->height);
 
