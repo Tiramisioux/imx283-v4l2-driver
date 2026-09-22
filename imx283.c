@@ -1770,6 +1770,8 @@ static int imx283_update_test_pattern(struct imx283 *imx283, u32 pattern_index)
 	return ret;
 }
 
+static u64 imx283_min_hmax(const struct imx283_mode *mode);
+
 static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct imx283 *imx283 =
