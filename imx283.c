@@ -935,7 +935,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2304 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
-		.crop_min_VMAX = 2433, /* Deliberately below Rules B and P for the hardware sweep; restore to 2433 once the floor is measured. */
+		.crop_min_VMAX = 2433,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -970,11 +970,11 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2204),
 	},
 	{
-		/* Mode 0, 12-bit 1x1, 2.55:1 crop -- 18.0 MB/frame */
+		/* Mode 0, 12-bit 1x1, 2.53:1 crop -- 18.0 MB/frame */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
 		.width = 5472 + 96,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2160),
+		.height = 2160 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
 		.crop_min_VMAX = 2289,
@@ -998,7 +998,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2160 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
-		.crop_min_VMAX = 2289,          /* 2176 + 129 */
+		.crop_min_VMAX = 2305,          /* 2176 + 129 */
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
