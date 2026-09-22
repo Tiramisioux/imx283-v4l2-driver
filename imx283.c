@@ -2078,10 +2078,21 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	const struct imx283_mode *mode = imx283->mode;
 	u64 def_hblank;
 	u64 pixel_rate;
+	u64 default_vmax;
 
 	imx283_update_mode_metadata(imx283, mode);
 
-	imx283->vmax = mode->default_VMAX;
+	/*
+	 * When experimental crop timing is enabled, start each crop mode at
+	 * its experimental VMAX floor. Leaving default_VMAX at the full-frame
+	 * 4000 would otherwise make every crop mode start at about 21 fps.
+	 * With crop_vmax disabled, retain the normal mode defaults.
+	 */
+	default_vmax = mode->default_VMAX;
+	if (crop_vmax && mode->crop_min_VMAX)
+		default_vmax = mode->crop_min_VMAX;
+
+	imx283->vmax = default_vmax;
 	imx283->hmax = mode->default_HMAX;
 
 	pixel_rate = (u64)mode->width * 72000000;
@@ -2110,9 +2121,9 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	dev_info(imx283->dev,
 		 "Setting timing: min_HMAX=%llu min_VMAX=%llu default_HMAX=%llu default_VMAX=%llu\n",
 		 imx283_min_hmax(mode), imx283_min_vmax(mode),
-		 mode->default_HMAX, mode->default_VMAX);
+		 mode->default_HMAX, default_vmax);
 	dev_info(imx283->dev,"Setting default HBLANK : %lld, VBLANK : %lld with PixelRate: %lld\n",
-		 def_hblank, mode->default_VMAX - mode->height, pixel_rate);
+		 def_hblank, default_vmax - mode->height, pixel_rate);
 
 }
 /* TODO */
