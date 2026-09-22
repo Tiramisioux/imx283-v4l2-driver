@@ -257,11 +257,11 @@ module_param(experimental_modes, bool, 0444);
  * argument would make the experiment needlessly fragile. Set crop_vmax=0
  * only when explicitly disabling the experiment for a test.
  */
-static bool crop_vmax = true;
+static bool crop_vmax = false;
 module_param(crop_vmax, bool, 0444);
 MODULE_PARM_DESC(crop_vmax,
 		  "Use the per-crop VMAX floor on Mode-0 vertical crops (experimental, "
-		  "UNMEASURED: see development/imx283-crop-fps/. Default 1 = use the per-crop floor; set 0 for the full-frame floor.)");
+		  "UNMEASURED: see development/imx283-crop-fps/. Default 0 = keep the Mode-0 floor; set 1 to use the experimental crop floor.)");
 MODULE_PARM_DESC(experimental_modes,
 		  "Enable unvalidated readout modes 1S, 4, 5 and 6 (default: off, see EXPERIMENTAL_CROPS.md)");
 
