@@ -2920,25 +2920,13 @@ static int imx283_probe(struct i2c_client *client)
 		goto error_handler_free;
 	}
 
-	/* RP1 CFE may complete async registration synchronously. Finalize the
-	 * subdev state before it can enter the media graph. */
-	imx283->sd.state_lock = imx283->ctrl_handler.lock;
-	ret = v4l2_subdev_init_finalize(&imx283->sd);
-	if (ret < 0) {
-		dev_err(imx283->dev, "subdev init finalize failed: %d\n", ret);
-		goto error_media_entity;
-	}
-
 	ret = v4l2_async_register_subdev_sensor(&imx283->sd);
 	if (ret < 0) {
 		dev_err(imx283->dev, "failed to register sensor sub-device: %d\n", ret);
-		goto error_subdev_cleanup;
+		goto error_media_entity;
 	}
 
 	return 0;
-
-error_subdev_cleanup:
-	v4l2_subdev_cleanup(&imx283->sd);
 
 error_media_entity:
 	media_entity_cleanup(&imx283->sd.entity);
@@ -2961,7 +2949,6 @@ static void imx283_remove(struct i2c_client *client)
 	struct imx283 *imx283 = to_imx283(sd);
 
 	v4l2_async_unregister_subdev(sd);
-	v4l2_subdev_cleanup(&imx283->sd);
 	media_entity_cleanup(&sd->entity);
 	imx283_free_controls(imx283);
 
