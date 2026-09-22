@@ -304,6 +304,13 @@ struct imx283_mode {
 	u64 min_VMAX;
 
 	/*
+	 * Experimental per-crop horizontal-period floor, in HMAX sensor
+	 * clocks. Zero means use min_HMAX. These values are deliberately
+	 * limited to experimental Mode-0 crop entries.
+	 */
+	u64 crop_min_HMAX;
+
+	/*
 	 * Experimental per-crop vertical-period floor, in sensor lines. Zero
 	 * means no per-crop floor is declared and min_VMAX remains in force.
 	 * Rule B: crop height + 129, where 129 is Mode 0's own vertical
@@ -991,6 +998,13 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.height = 2160 + 16,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		/*
+		 * Experimental horizontal timing hypothesis:
+		 * HMAX scales with the emitted frame width (3840 + 96 HOB)
+		 * relative to the full 5472 + 96 Mode-0 frame:
+		 * round(887 * 3936 / 5568) = 627.
+		 */
+		.crop_min_HMAX = 627,
 		.crop_min_VMAX = 2305,          /* 2176 + 129 */
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
@@ -1003,6 +1017,34 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 2160),
+		.experimental = true,
+	},
+	{
+		/*
+		 * Mode 0, 12-bit 1x1, 1920x1080 maximum-crop timing probe.
+		 * HMAX 321 = round(887 * 2016 / 5568).
+		 * VMAX 1209 is the corresponding aggressive vertical floor.
+		 * Neither floor is hardware-validated.
+		 */
+		.mode = IMX283_MODE_0,
+		.bpp = 12,
+		.width = 1920 + 96,
+		.height = 1080 + 16,
+		.min_HMAX = 887,
+		.min_VMAX = 3793,
+		.crop_min_HMAX = 321,
+		.crop_min_VMAX = 1209,
+		.default_HMAX = 900,
+		.default_VMAX = 1400,
+		.min_SHR = 12,
+		.veff = 3694,
+		.vst = 0,
+		.vct = 0,
+		.hbin_ratio = 1,
+		.vbin_ratio = 1,
+		.horizontal_ob = 96,
+		.vertical_ob = 16,
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 1920, 1080),
 		.experimental = true,
 	},
 };
@@ -2013,6 +2055,14 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
 }
 
+static u64 imx283_min_hmax(const struct imx283_mode *mode)
+{
+	if (crop_vmax && mode->crop_min_HMAX)
+		return mode->crop_min_HMAX;
+
+	return mode->min_HMAX;
+}
+
 static u64 imx283_min_vmax(const struct imx283_mode *mode)
 {
 	if (crop_vmax && mode->crop_min_VMAX)
@@ -2033,7 +2083,7 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	imx283->hmax = mode->default_HMAX;
 
 	pixel_rate = (u64)mode->width * 72000000;
-	do_div(pixel_rate,mode->min_HMAX);
+	do_div(pixel_rate, imx283_min_hmax(mode));
 	dev_info(imx283->dev,"Pixel Rate : %lld\n",pixel_rate);
 
 
@@ -2055,7 +2105,12 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 
 	__v4l2_ctrl_modify_range(imx283->pixel_rate, pixel_rate, pixel_rate, 1, pixel_rate);
 
-	dev_info(imx283->dev,"Setting default HBLANK : %lld, VBLANK : %lld with PixelRate: %lld\n",def_hblank,mode->default_VMAX - mode->height, pixel_rate);
+	dev_info(imx283->dev,
+		 "Setting timing: min_HMAX=%llu min_VMAX=%llu default_HMAX=%llu default_VMAX=%llu\n",
+		 imx283_min_hmax(mode), imx283_min_vmax(mode),
+		 mode->default_HMAX, mode->default_VMAX);
+	dev_info(imx283->dev,"Setting default HBLANK : %lld, VBLANK : %lld with PixelRate: %lld\n",
+		 def_hblank, mode->default_VMAX - mode->height, pixel_rate);
 
 }
 /* TODO */
