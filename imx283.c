@@ -261,8 +261,8 @@ MODULE_PARM_DESC(experimental_modes,
 static bool crop_vmax;
 module_param(crop_vmax, bool, 0444);
 MODULE_PARM_DESC(crop_vmax,
-		  "Use the per-crop VMAX floor on Mode-0 vertical crops (experimental, "
-		  "UNMEASURED: see development/imx283-crop-fps/. Default 0 = full-frame floor.)");
+		  "Use experimental per-crop HMAX/VMAX floors on Mode-0 crops "
+		  "(UNMEASURED; default 0 = full-frame timing floors).");
 
 /* imx283 native and active pixel array size. */
 static const struct v4l2_rect imx283_native_area = {
@@ -1828,7 +1828,7 @@ static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 		dev_info(imx283->dev, "V4L2_CID_HBLANK : %d\n", ctrl->val);
 		//int hmax = (IMX283_NATIVE_WIDTH + ctrl->val) * 72000000; / IMX283_PIXEL_RATE;
 		pixel_rate = (u64)mode->width * 72000000;
-		do_div(pixel_rate, mode->min_HMAX);
+		do_div(pixel_rate, imx283_min_hmax(mode));
 		hmax = (u64)(mode->width + ctrl->val) * 72000000;
 		do_div(hmax, pixel_rate);
 		imx283->hmax = hmax;
