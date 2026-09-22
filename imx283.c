@@ -2920,13 +2920,22 @@ static int imx283_probe(struct i2c_client *client)
 		goto error_handler_free;
 	}
 
-	ret = v4l2_async_register_subdev_sensor(&imx283->sd);
+	ret = v4l2_subdev_init_finalize(&imx283->sd);
 	if (ret < 0) {
-		dev_err(imx283->dev, "failed to register sensor sub-device: %d\n", ret);
+		dev_err(imx283->dev, "subdev init error: %d\n", ret);
 		goto error_media_entity;
 	}
 
+	ret = v4l2_async_register_subdev_sensor(&imx283->sd);
+	if (ret < 0) {
+		dev_err(imx283->dev, "failed to register sensor sub-device: %d\n", ret);
+		goto error_subdev_cleanup;
+	}
+
 	return 0;
+
+error_subdev_cleanup:
+	v4l2_subdev_cleanup(&imx283->sd);
 
 error_media_entity:
 	media_entity_cleanup(&imx283->sd.entity);
@@ -2949,6 +2958,7 @@ static void imx283_remove(struct i2c_client *client)
 	struct imx283 *imx283 = to_imx283(sd);
 
 	v4l2_async_unregister_subdev(sd);
+	v4l2_subdev_cleanup(&imx283->sd);
 	media_entity_cleanup(&sd->entity);
 	imx283_free_controls(imx283);
 
