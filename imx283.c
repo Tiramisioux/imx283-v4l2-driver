@@ -512,15 +512,16 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 /*
  * Mode configs.
  *
- * WP-283-3: do not derive a shorter VMAX from a shorter vertical crop.
- * Mainline has no crop modes at all, so there is no mainline precedent
- * for a per-crop VMAX floor, and this sensor's own binned modes (2, 2A,
- * 3) already carry a *higher* min_VMAX than the uncropped 1x1 mode 0
- * despite reading out far fewer lines -- VMAX counts sensor scan lines,
- * not output lines, so "shorter crop, so lower VMAX" does not follow.
- * Every Mode-0 crop entry below correctly keeps the full-frame
- * min_VMAX/default_VMAX. A per-crop floor needs the datasheet or a
- * measured Pi sweep (a separate package), not an assumption here.
+ * HMAX is tied to emitted columns; MODE_3 confirms this because it scans
+ * the full 5472-column array while declaring a much smaller min_HMAX.
+ * VMAX is not shortened by binning: binned modes still traverse the sensor
+ * rows. A VCROP_EN window is different from binning because the excluded
+ * rows may not be scanned at all.
+ *
+ * The shipped vendor-preset VCROP_EN modes carry reduced VMAX floors, but
+ * whether a driver-programmed arbitrary Mode-0 VWIDCUT window shortens the
+ * scan in the same way is UNKNOWN until measured on hardware. The
+ * crop_min_VMAX fields below therefore remain behind crop_vmax=0.
  */
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
@@ -1048,11 +1049,13 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.default_VMAX = 3840,
 		.min_SHR = 12,
 		/*
-		 * Same all-pixel 1x1 scan as MODE_1 with the sensor's own
-		 * 16:9 vertical crop (mdsel3/mdsel4 carry the VCROP_EN bits),
-		 * so the array is scanned the same way and veff is unchanged;
-		 * what differs is how many of those lines come out. Same
-		 * reasoning as MODE_1 for why these five are spelled out.
+		 * Same all-pixel 1x1 readout family as MODE_1, but the sensor's
+		 * vendor-preset VCROP_EN bits reduce the declared VMAX floor.
+		 * The 3203 value back-solves to about 29.97 fps at HMAX 750 and
+		 * is a timing value from the originating driver history, not a
+		 * datasheet floor. It therefore does not by itself establish that
+		 * an arbitrary driver-programmed VWIDCUT window can use the same
+		 * shortening.
 		 */
 		.veff = 3694,
 		.vst = 0,
@@ -1182,11 +1185,10 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 *    columns would need 7680 of a 5472-column array at 2x, and
 		 *    2160 lines would need 4320 of 3648; 5472/3840 = 1.425 is
 		 *    not a ratio the sensor offers. So .width/.height and
-		 *    hbin/vbin 1x1 above are right. (Do not argue this from
-		 *    the timing floors: min_HMAX and min_VMAX track the OUTPUT
-		 *    frame, not the scanned window. IMX283_MODE_3 bins 3x
-		 *    horizontally -- it scans all 5472 columns -- and still
-		 *    declares min_HMAX 284 against mode 0's 887.)
+		 *    hbin/vbin 1x1 above are right. HMAX tracks emitted columns;
+		 *    MODE_3 scans all 5472 columns and still declares min_HMAX
+		 *    284. VMAX semantics for an arbitrary VCROP_EN window remain
+		 *    UNKNOWN until the crop_vmax hardware sweep is performed.)
 		 *  - .crop.top is metadata only for this entry: the arbitrary
 		 *    vertical-crop path in imx283_start_streaming() is
 		 *    Mode-0-only, and 0x30's mdsel3/mdsel4 do not even set the
