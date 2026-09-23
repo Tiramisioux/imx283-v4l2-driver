@@ -607,7 +607,7 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.mode = IMX283_MODE_0, .bpp = 12, \
 		.width = (_cw) + 96, .height = (_ch) + 16, \
 		.min_HMAX = 887, .min_VMAX = 3793, \
-		.crop_min_VMAX = (_ch) + 129, \
+		.crop_min_VMAX = (_ch) + 16 + 129, \
 		.default_HMAX = 900, .default_VMAX = 4000, \
 		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
 		.hbin_ratio = 1, .vbin_ratio = 1, \
@@ -2483,7 +2483,7 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
 		{
 			u32 y_out_size = imx283_output_height(mode);
-			u32 write_v_size = y_out_size;
+			u32 write_v_size = y_out_size + mode->vertical_ob;
 			u32 v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
 			s32 v_pos;
 
@@ -2497,14 +2497,14 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			cci_write(imx283, IMX283_REG_VWIDCUT, v_widcut, &ret);
 			cci_write(imx283, IMX283_REG_VWINPOS, v_pos, &ret);
 		}
-		cci_write(imx283, IMX283_REG_OB_SIZE_V, 0, &ret);
+		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 	} else {
 		/* Preserve the existing timing/crop programming for other modes. */
 		cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
 			  imx283_output_height(mode), &ret);
 		cci_write(imx283, IMX283_REG_WRITE_VSIZE,
-			  imx283_output_height(mode), &ret);
-		cci_write(imx283, IMX283_REG_OB_SIZE_V, 0, &ret);
+			  imx283_output_height(mode) + mode->vertical_ob, &ret);
+		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 	}
 
 	/*
