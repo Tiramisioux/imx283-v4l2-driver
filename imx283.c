@@ -353,17 +353,6 @@ struct imx283_mode {
  * (VOB). At stream time the driver trims the HOB with HTRIMMING and stops
  * WRITE_VSIZE before the VOB, so V4L2 sees only the active image.
  */
-	bool experimental;
-};
-
-/*
- * Driver-only active-frame experiment.
- *
- * The static mode table retains the measured sensor geometry, including the
- * leading horizontal optical-black (HOB) and trailing vertical optical-black
- * (VOB). At stream time the driver trims the HOB with HTRIMMING and stops
- * WRITE_VSIZE before the VOB, so V4L2 sees only the active image.
- */
 static unsigned int imx283_output_width(const struct imx283_mode *mode)
 {
 	return mode->width - mode->horizontal_ob;
@@ -380,22 +369,6 @@ static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
 }
 
 static const struct imx283_mode *imx283_find_nearest_mode(
-	const struct imx283_mode *modes, unsigned int num_modes,
-	unsigned int requested_width, unsigned int requested_height)
-{
-	const struct imx283_mode *best = &modes[0];
-	unsigned int best_score = UINT_MAX, i;
-
-	for (i = 0; i < num_modes; i++) {
-		unsigned int w = imx283_output_width(&modes[i]);
-		unsigned int h = imx283_output_height(&modes[i]);
-		unsigned int dw = w > requested_width ? w - requested_width :
-						 requested_width - w;
-		unsigned int dh = h > requested_height ? h - requested_height :
-						 requested_height - h;
-		unsigned int score = dw + dh;
-
-		if (score < best_score) {static const struct imx283_mode *imx283_find_nearest_mode(
 	const struct imx283_mode *modes, unsigned int num_modes,
 	unsigned int requested_width, unsigned int requested_height)
 {
