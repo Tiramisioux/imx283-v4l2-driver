@@ -346,21 +346,27 @@ struct imx283_mode {
 };
 
 /*
- * Driver-only active-frame experiment.
+ * IMX283 transport geometry.
  *
- * The static mode table retains the measured sensor geometry, including the
- * leading horizontal optical-black (HOB) and trailing vertical optical-black
- * (VOB). At stream time the driver trims the HOB with HTRIMMING and stops
- * WRITE_VSIZE before the VOB, so V4L2 sees only the active image.
+ * HTRIMMING selects the active sensor window, but it does not remove the
+ * sensor's leading horizontal optical-black columns from the CSI-2 packet.
+ * Likewise, WRITE_VSIZE includes the trailing vertical optical-black rows.
+ * Therefore mode->width/height are the actual transport dimensions seen by
+ * CSI-2, while mode->crop describes the active sensor window inside them.
+ *
+ * This distinction is critical: advertising active-only dimensions while
+ * the sensor still prepends HOB makes the CSI receiver interpret the wrong
+ * line length, producing the horizontal coloured-striping artifact seen on
+ * CM5.
  */
 static unsigned int imx283_output_width(const struct imx283_mode *mode)
 {
-	return mode->width - mode->horizontal_ob;
+	return mode->width;
 }
 
 static unsigned int imx283_output_height(const struct imx283_mode *mode)
 {
-	return mode->height - mode->vertical_ob;
+	return mode->height;
 }
 
 static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
@@ -2258,11 +2264,11 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 	}
 	/*
 	 * Frame coordinates, not sensor coordinates. horizontal_ob/vertical_ob
-	 * are already expressed in this mode's own output pixels (the tables
-	 * divide them by the binning ratio where it applies), so they need no
-	 * scaling here.
+	 * are expressed in the mode's transport pixels, so they need no scaling.
+	 * VOB is trailing rather than a top offset, hence active-top is zero.
 	 */
-	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl, 0);
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl,
+					mode->horizontal_ob);
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
 }
 
