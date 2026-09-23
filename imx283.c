@@ -546,7 +546,7 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.hbin_ratio = (_hb), .vbin_ratio = (_vb), \
 		.horizontal_ob = (_hob), .vertical_ob = (_vob), \
 		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
-		.experimental = true, \
+		.experimental = false, \
 	}
 
 static const struct imx283_mode supported_modes_12bit[] = {
@@ -1033,7 +1033,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 3840, 2160),
-		.experimental = true,
+		.experimental = false,
 	},
 	/* IMX283_MODE_2 aspect-ratio family. */
 	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 3648, 3648, 362, 3840, 0, 375, 3840, 12, 1824, 2, 2, 48, 4, 952, 108), /* 1:1 */
