@@ -607,10 +607,6 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.mode = IMX283_MODE_0, .bpp = 12, \
 		.width = (_cw) + 96, .height = (_ch) + 16, \
 		.min_HMAX = 887, .min_VMAX = 3793, \
-		/* VMAX is in emitted/output lines here: the 16-line VOB is no longer
-		 * part of WRITE_VSIZE on the active-only path. Keep the same 129-line
-		 * sensor timing overhead used by the measured Mode-0 crop floors.
-		 */
 		.crop_min_VMAX = (_ch) + 129, \
 		.default_HMAX = 900, .default_VMAX = 4000, \
 		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
