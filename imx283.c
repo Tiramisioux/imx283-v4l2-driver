@@ -2488,7 +2488,7 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		cci_write(imx283, IMX283_REG_MDSEL4,
 			  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
 		{
-			u32 y_out_size = imx283_output_height(mode);
+			u32 y_out_size = mode->crop.height / mode->vbin_ratio;
 			u32 write_v_size = y_out_size + mode->vertical_ob;
 			u32 v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
 			s32 v_pos;
@@ -2507,9 +2507,9 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	} else {
 		/* Preserve the existing timing/crop programming for other modes. */
 		cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
-			  imx283_output_height(mode), &ret);
+			  mode->crop.height / mode->vbin_ratio, &ret);
 		cci_write(imx283, IMX283_REG_WRITE_VSIZE,
-			  imx283_output_height(mode) + mode->vertical_ob, &ret);
+			  mode->crop.height / mode->vbin_ratio + mode->vertical_ob, &ret);
 		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 	}
 
