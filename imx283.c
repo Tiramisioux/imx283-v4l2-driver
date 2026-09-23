@@ -550,6 +550,23 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.experimental = false, \
 	}
 
+#define IMX283_CROPPED_1X1_MODE(_cw, _ch, _left, _top) \
+	{ \
+		.mode = IMX283_MODE_0, .bpp = 12, \
+		.width = (_cw) + 96, .height = (_ch) + 16, \
+		.min_HMAX = 887, .min_VMAX = 3793, \
+		.crop_min_VMAX = (_ch) + 16 + 129, \
+		.default_HMAX = 900, .default_VMAX = 4000, \
+		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
+		.hbin_ratio = 1, .vbin_ratio = 1, \
+		.horizontal_ob = 96, .vertical_ob = 16, \
+		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
+		.experimental = false, \
+	}
+
+#define IMX283_CROP_1X1(_w, _h) \
+	IMX283_CROPPED_1X1_MODE((_w), (_h), (5472 - (_w)) / 2, (3648 - (_h)) / 2)
+
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
 		/*
@@ -1132,23 +1149,6 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_CROP_1X1(1280, 536), /* 2.39:1 */
 	IMX283_CROP_1X1(1280, 512), /* 2.5:1 */
 	IMX283_CROP_1X1(1280, 502), /* 2.55:1 */
-#define IMX283_CROPPED_1X1_MODE(_cw, _ch, _left, _top) \
-	{ \
-		.mode = IMX283_MODE_0, .bpp = 12, \
-		.width = (_cw) + 96, .height = (_ch) + 16, \
-		.min_HMAX = 887, .min_VMAX = 3793, \
-		.crop_min_VMAX = (_ch) + 16 + 129, \
-		.default_HMAX = 900, .default_VMAX = 4000, \
-		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
-		.hbin_ratio = 1, .vbin_ratio = 1, \
-		.horizontal_ob = 96, .vertical_ob = 16, \
-		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
-		.experimental = false, \
-	}
-
-#define IMX283_CROP_1X1(_w, _h) \
-	IMX283_CROPPED_1X1_MODE((_w), (_h), (5472 - (_w)) / 2, (3648 - (_h)) / 2)
-
 /* IMX283_MODE_0 aspect-ratio family (1x1 full-readout narrow ratios). */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3648, 3648, 887, 3793, 0, 900, 4000, 12, 3694, 1, 1, 96, 16, 952, 108), /* 1:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 4851, 3648, 887, 3793, 0, 900, 4000, 12, 3694, 1, 1, 96, 16, 350, 108), /* 1.33:1 */
