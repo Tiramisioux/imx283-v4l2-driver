@@ -2525,9 +2525,22 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
 	{
 		struct v4l2_rect output_crop = imx283_output_crop(mode);
-		cci_write(imx283, IMX283_REG_HTRIMMING_START, output_crop.left, &ret);
+		u32 htrimming_start =
+			output_crop.left - mode->horizontal_ob;
+		u32 htrimming_end =
+			output_crop.left + output_crop.width;
+
+		/*
+		 * The crop rectangle is the active picture in native sensor
+		 * coordinates. The IMX283 transport frame prepends horizontal
+		 * optical black, so move the trimming start left by HOB while
+		 * retaining the active crop's right edge. This makes the emitted
+		 * transport width exactly active_width + horizontal_ob.
+		 */
+		cci_write(imx283, IMX283_REG_HTRIMMING_START,
+			  htrimming_start, &ret);
 		cci_write(imx283, IMX283_REG_HTRIMMING_END,
-			  output_crop.left + output_crop.width, &ret);
+			  htrimming_end, &ret);
 	}
 
 	/* Todo: These must be calculated based on the link-freq and mode */
