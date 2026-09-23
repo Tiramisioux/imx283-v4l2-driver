@@ -274,8 +274,13 @@ static const struct v4l2_rect imx283_native_area = {
 };
 
 static const struct v4l2_rect imx283_active_area = {
-	.top = 108,
-	.left = 40,
+	/*
+	 * Sony's 5472x3648 recommended recording area is located at
+	 * (108,40) in the 5592x3710 native array.  Keep X/Y in the
+	 * correct coordinate axes: left=108, top=40.
+	 */
+	.top = 40,
+	.left = 108,
 	.width = 5472,
 	.height = 3648,
 };
@@ -2457,17 +2462,15 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 * Configure horizontal cropping.
 	 *
 	 * WP-283-3: mainline writes HTRIMMING_END = crop.left + crop.width;
-	 * this fork has always written + 1. This runs for every mode, not
-	 * only the Mode-0 crops, so it is left unchanged pending the G8 Pi
-	 * gate (chart take, checked for correct centring and no wrap)
-	 * rather than changed without a hardware read-back or datasheet
-	 * copy of the register's exact start/end semantics.
+	 * use the exclusive end coordinate used by the upstream IMX283
+	 * driver. The previous +1 extended the horizontal trimming window by
+	 * one sensor column and could expose a spurious right-edge column.
 	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_START, mode->crop.left, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_END,
-		  mode->crop.left + mode->crop.width + 1, &ret);
+		  mode->crop.left + mode->crop.width, &ret);
 
 	/* Todo: These must be calculated based on the link-freq and mode */
 	cci_write(imx283, IMX283_REG_HMAX, mode->default_HMAX, &ret);
