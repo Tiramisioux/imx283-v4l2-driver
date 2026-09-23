@@ -1097,8 +1097,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.crop_min_VMAX = 2305,          /* 2176 + 129 */
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
+		.min_SHR = 12,		.veff = 3694,
 		.vst = 0,
 		.vct = 0,
 		.hbin_ratio = 1,
@@ -2197,7 +2196,6 @@ static int imx283_enum_frame_size(struct v4l2_subdev *sd,
 
 	return 0;
 }
-
 static void imx283_reset_colorspace(struct v4l2_mbus_framefmt *fmt)
 {
 	fmt->colorspace = V4L2_COLORSPACE_RAW;
