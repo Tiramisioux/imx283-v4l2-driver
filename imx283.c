@@ -535,18 +535,19 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  * These entries are geometry experiments only; they retain the parent
  * mode's timing floor until measured on hardware.
  */
-#define IMX283_ASPECT_MODE(_mode, _bpp, _cw, _ch, _hmax, _vmax, _crop_vmax, _dhmax, _dvmax, _shr, _veff, _hb, _vb, _hob, _vob, _left, _top) \
-	{ \
-		.mode = (_mode), .bpp = (_bpp), \
-		.width = ((_cw) / (_hb)) + (_hob), \
-		.height = ((_ch) / (_vb)) + (_vob), \
-		.min_HMAX = (_hmax), .min_VMAX = (_vmax), .crop_min_VMAX = (_crop_vmax), \
-		.default_HMAX = (_dhmax), .default_VMAX = (_dvmax), \
-		.min_SHR = (_shr), .veff = (_veff), .vst = 0, .vct = 0, \
-		.hbin_ratio = (_hb), .vbin_ratio = (_vb), \
-		.horizontal_ob = (_hob), .vertical_ob = (_vob), \
-		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
-		.experimental = false, \
+#define IMX283_BINNED_ASPECT_MODE(_mode, _bpp, _cw, _ch, _hmax, _vmax, _vblank, _dhmax, _dvmax, _shr, _veff, _hb, _vb, _hob, _vob, _left, _top) \\
+	{ \\
+		.mode = (_mode), .bpp = (_bpp), \\
+		.width = ((_cw) / (_hb)) + (_hob), \\
+		.height = ((_ch) / (_vb)) + (_vob), \\
+		.min_HMAX = (_hmax), .min_VMAX = (_vmax), \\
+		.crop_min_VMAX = (((_ch) / (_vb)) + (_vob) + (_vblank)), \\
+		.default_HMAX = (_dhmax), .default_VMAX = (_dvmax), \\
+		.min_SHR = (_shr), .veff = (_veff), .vst = 0, .vct = 0, \\
+		.hbin_ratio = (_hb), .vbin_ratio = (_vb), \\
+		.horizontal_ob = (_hob), .vertical_ob = (_vob), \\
+		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \\
+		.experimental = false, \\
 	}
 
 static const struct imx283_mode supported_modes_12bit[] = {
