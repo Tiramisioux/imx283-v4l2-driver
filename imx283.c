@@ -345,6 +345,56 @@ struct imx283_mode {
 	bool experimental;
 };
 
+/*
+ * Driver-only active-frame experiment.
+ *
+ * The static mode table retains the measured sensor geometry, including the
+ * leading horizontal optical-black (HOB) and trailing vertical optical-black
+ * (VOB). At stream time the driver trims the HOB with HTRIMMING and stops
+ * WRITE_VSIZE before the VOB, so V4L2 sees only the active image.
+ */
+static unsigned int imx283_output_width(const struct imx283_mode *mode)
+{
+	return mode->width - (2 * mode->horizontal_ob);
+}
+
+static unsigned int imx283_output_height(const struct imx283_mode *mode)
+{
+	return mode->height - mode->vertical_ob;
+}
+
+static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
+{
+	struct v4l2_rect crop = mode->crop;
+	crop.left += mode->horizontal_ob * mode->hbin_ratio;
+	crop.width -= mode->horizontal_ob * mode->hbin_ratio;
+	return crop;
+}
+
+static const struct imx283_mode *imx283_find_nearest_mode(
+	const struct imx283_mode *modes, unsigned int num_modes,
+	unsigned int requested_width, unsigned int requested_height)
+{
+	const struct imx283_mode *best = &modes[0];
+	unsigned int best_score = UINT_MAX, i;
+
+	for (i = 0; i < num_modes; i++) {
+		unsigned int w = imx283_output_width(&modes[i]);
+		unsigned int h = imx283_output_height(&modes[i]);
+		unsigned int dw = w > requested_width ? w - requested_width :
+						 requested_width - w;
+		unsigned int dh = h > requested_height ? h - requested_height :
+						 requested_height - h;
+		unsigned int score = dw + dh;
+
+		if (score < best_score) {
+			best = &modes[i];
+			best_score = score;
+		}
+	}
+	return best;
+}
+
 struct imx283_input_frequency {
 	unsigned int mhz;
 	unsigned int reg_count;
@@ -1097,8 +1147,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 3648, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 108), /* 1.50:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 3072, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 396), /* 1.78:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2955, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 454), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2895, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 484), /* 1.89:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2880, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 492), /* 1.90:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2895, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 484), /* 1.89:1 */	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2880, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 492), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2736, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 564), /* 2.00:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2487, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 688), /* 2.20:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2463, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 700), /* 2.22:1 */
@@ -1750,16 +1799,16 @@ static void imx283_check_mode_table(struct device *dev, const char *name,
 		 * adding the vertical test, or it will fire on two entries
 		 * that are correct.
 		 */
-		if (modes[i].hbin_ratio &&
-		    (modes[i].width - modes[i].horizontal_ob) * modes[i].hbin_ratio
-		    != crop->width)
-			dev_warn(dev,
-				 "%s[%u] (%ux%u, readout-mode enum %u): crop width %u does not match (%u active out - %u ob) x %u binning = %u\n",
-				 name, i, modes[i].width, modes[i].height,
-				 modes[i].mode, crop->width, modes[i].width,
-				 modes[i].horizontal_ob, modes[i].hbin_ratio,
-				 (modes[i].width - modes[i].horizontal_ob)
-				 * modes[i].hbin_ratio);
+		if (modes[i].hbin_ratio) {
+			struct v4l2_rect output_crop = imx283_output_crop(&modes[i]);
+			unsigned int output_width = imx283_output_width(&modes[i]);
+			if (output_width * modes[i].hbin_ratio != output_crop.width)
+				dev_warn(dev,
+					 "%s[%u] (%ux%u, readout-mode enum %u): active crop width %u does not match %u output x %u binning = %u\n",
+					 name, i, modes[i].width, modes[i].height, modes[i].mode,
+					 output_crop.width, output_width, modes[i].hbin_ratio,
+					 output_width * modes[i].hbin_ratio);
+		}
 	}
 }
 
@@ -1842,15 +1891,15 @@ static int imx283_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	mutex_lock(&imx283->mutex);
 
 	/* Initialize try_fmt for the image pad */
-	try_fmt_img->width = supported_modes_12bit[0].width;
-	try_fmt_img->height = supported_modes_12bit[0].height;
+	try_fmt_img->width = imx283_output_width(&supported_modes_12bit[0]);
+	try_fmt_img->height = imx283_output_height(&supported_modes_12bit[0]);
 	try_fmt_img->code = imx283_get_format_code(imx283,
 						   MEDIA_BUS_FMT_SRGGB12_1X12);
 	try_fmt_img->field = V4L2_FIELD_NONE;
 
 	/* Initialize try_crop to the selected default mode's active area. */
 	try_crop = v4l2_subdev_state_get_crop(fh->state, IMAGE_PAD);
-	*try_crop = imx283->mode->crop;
+	*try_crop = imx283_output_crop(imx283->mode);
 
 	mutex_unlock(&imx283->mutex);
 
@@ -1953,7 +2002,7 @@ static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 	if (ctrl->id == V4L2_CID_VBLANK){
 		/* Honour the VBLANK limits when setting exposure. */
 		u64 current_exposure, max_exposure, min_exposure, vmax;
-		vmax = ((u64)mode->height + ctrl->val) ;
+		vmax = ((u64)imx283_output_height(mode) + ctrl->val) ;
 		imx283->vmax = vmax;
 
 		calculate_min_max_v4l2_cid_exposure(imx283->hmax, imx283->vmax,
@@ -1992,9 +2041,9 @@ static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 		{
 		dev_info(imx283->dev, "V4L2_CID_HBLANK : %d\n", ctrl->val);
 		//int hmax = (IMX283_NATIVE_WIDTH + ctrl->val) * 72000000; / IMX283_PIXEL_RATE;
-		pixel_rate = (u64)mode->width * 72000000;
+		pixel_rate = (u64)imx283_output_width(mode) * 72000000;
 		do_div(pixel_rate, mode->min_HMAX);
-		hmax = (u64)(mode->width + ctrl->val) * 72000000;
+		hmax = (u64)(imx283_output_width(mode) + ctrl->val) * 72000000;
 		do_div(hmax, pixel_rate);
 		imx283->hmax = hmax;
 		dev_info(imx283->dev, "\tHMAX : %d\n", imx283->hmax);
@@ -2005,7 +2054,7 @@ static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_VBLANK:
 		{
 		dev_info(imx283->dev,"V4L2_CID_VBLANK : %d\n",ctrl->val);
-		imx283->vmax = ((u64)mode->height + ctrl->val);
+		imx283->vmax = ((u64)imx283_output_height(mode) + ctrl->val);
 		dev_info(imx283->dev, "\tVMAX : %d\n", imx283->vmax);
 		ret = cci_write(imx283, IMX283_REG_VMAX, imx283->vmax, NULL);
 		}
@@ -2141,9 +2190,9 @@ static int imx283_enum_frame_size(struct v4l2_subdev *sd,
 	if (fse->code != imx283_get_format_code(imx283, fse->code))
 		return -EINVAL;
 
-	fse->min_width = mode_list[fse->index].width;
+	fse->min_width = imx283_output_width(&mode_list[fse->index]);
 	fse->max_width = fse->min_width;
-	fse->min_height = mode_list[fse->index].height;
+	fse->min_height = imx283_output_height(&mode_list[fse->index]);
 	fse->max_height = fse->min_height;
 
 	return 0;
@@ -2163,8 +2212,8 @@ static void imx283_update_image_pad_format(struct imx283 *imx283,
 					   const struct imx283_mode *mode,
 					   struct v4l2_subdev_format *fmt)
 {
-	fmt->format.width = mode->width;
-	fmt->format.height = mode->height;
+	fmt->format.width = imx283_output_width(mode);
+	fmt->format.height = imx283_output_height(mode);
 	fmt->format.field = V4L2_FIELD_NONE;
 	imx283_reset_colorspace(&fmt->format);
 }
@@ -2197,8 +2246,7 @@ static int imx283_get_pad_format(struct v4l2_subdev *sd,
  * Report the active mode's real binning and sensor crop through the
  * read-only "Mode Binning" / "Mode Crop *" controls (WP-283-5, DEC-4).
  * mode->crop is already in native sensor-pixel coordinates (see the
- * imx283_mode field comment and CENTERED_RECTANGLE), so it is reported
- * as-is. hbin_ratio and vbin_ratio differ on a few entries (the 3x1
+ * imx283_mode field comment and CENTERED_RECTANGLE), so it is reported * as-is. hbin_ratio and vbin_ratio differ on a few entries (the 3x1
  * horizontal-only-binning modes); DEC-4 says report the horizontal ratio
  * in that case, which is what "Mode Binning" always does here.
  */
@@ -2206,17 +2254,20 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 					 const struct imx283_mode *mode)
 {
 	__v4l2_ctrl_s_ctrl(imx283->mode_binning_ctrl, mode->hbin_ratio);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_left_ctrl, mode->crop.left);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_top_ctrl, mode->crop.top);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_width_ctrl, mode->crop.width);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_height_ctrl, mode->crop.height);
+	{
+		struct v4l2_rect output_crop = imx283_output_crop(mode);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_left_ctrl, output_crop.left);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_top_ctrl, output_crop.top);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_width_ctrl, output_crop.width);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_height_ctrl, output_crop.height);
+	}
 	/*
 	 * Frame coordinates, not sensor coordinates. horizontal_ob/vertical_ob
 	 * are already expressed in this mode's own output pixels (the tables
 	 * divide them by the binning ratio where it applies), so they need no
 	 * scaling here.
 	 */
-	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl, mode->horizontal_ob);
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl, 0);
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
 }
 
@@ -2238,7 +2289,7 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	imx283->vmax = mode->default_VMAX;
 	imx283->hmax = mode->default_HMAX;
 
-	pixel_rate = (u64)mode->width * 72000000;
+	pixel_rate = (u64)imx283_output_width(mode) * 72000000;
 	do_div(pixel_rate,mode->min_HMAX);
 	dev_info(imx283->dev,"Pixel Rate : %lld\n",pixel_rate);
 
@@ -2246,22 +2297,24 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	//int def_hblank = mode->default_HMAX * IMX283_PIXEL_RATE / 72000000 - IMX283_NATIVE_WIDTH;
 	def_hblank = mode->default_HMAX * pixel_rate;
 	do_div(def_hblank, 72000000);
-	def_hblank = def_hblank - mode->width;
+	def_hblank = def_hblank - imx283_output_width(mode);
 	__v4l2_ctrl_modify_range(imx283->hblank, 0,
 				 IMX283_HMAX_MAX, 1, def_hblank);
 	__v4l2_ctrl_s_ctrl(imx283->hblank, def_hblank);
 
 	/* Update limits and set FPS to default */
-	__v4l2_ctrl_modify_range(imx283->vblank, imx283_min_vmax(mode) - mode->height,
-				 IMX283_VMAX_MAX - mode->height,
-				 1, mode->default_VMAX - mode->height);
-	__v4l2_ctrl_s_ctrl(imx283->vblank, mode->default_VMAX - mode->height);
+	__v4l2_ctrl_modify_range(imx283->vblank,
+				 imx283_min_vmax(mode) - imx283_output_height(mode),
+				 IMX283_VMAX_MAX - imx283_output_height(mode),
+				 1, mode->default_VMAX - imx283_output_height(mode));
+	__v4l2_ctrl_s_ctrl(imx283->vblank,
+			   mode->default_VMAX - imx283_output_height(mode));
 
 	/* Setting this will adjust the exposure limits as well. */
 
 	__v4l2_ctrl_modify_range(imx283->pixel_rate, pixel_rate, pixel_rate, 1, pixel_rate);
 
-	dev_info(imx283->dev,"Setting default HBLANK : %lld, VBLANK : %lld with PixelRate: %lld\n",def_hblank,mode->default_VMAX - mode->height, pixel_rate);
+	dev_info(imx283->dev,"Setting default HBLANK : %lld, VBLANK : %lld with PixelRate: %lld\n",def_hblank,mode->default_VMAX - imx283_output_height(mode), pixel_rate);
 
 }
 /* TODO */
@@ -2283,11 +2336,9 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 
 	get_mode_table(fmt->format.code, &mode_list, &num_modes);
 
-	mode = v4l2_find_nearest_size(mode_list,
-					num_modes,
-					width, height,
-					fmt->format.width,
-					fmt->format.height);
+	mode = imx283_find_nearest_mode(mode_list, num_modes,
+				       fmt->format.width,
+				       fmt->format.height);
 	imx283_update_image_pad_format(imx283, mode, fmt);
 
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
@@ -2299,10 +2350,9 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 		 * Keep the TRY crop in step with the TRY format, so a caller
 		 * that probes a mode and then reads its crop back sees the
 		 * pair that belongs together. The two deliberately differ in
-		 * size: mode->width/height include the optical-black margin
-		 * that the sensor actually streams, while mode->crop is the
-		 * active rectangle alone, in native pixel-array coordinates,
-		 * which is what libcamera wants from V4L2_SEL_TGT_CROP.
+		 * size: the static mode table retains the optical-black transport margins;
+		 * the driver now emits an active-only frame, so the TRY crop is the
+		 * effective sensor window actually delivered to V4L2.
 		 *
 		 * Only the TRY state is touched. This driver still uses the
 		 * legacy subdev state model -- internal_ops.open seeds the
@@ -2315,7 +2365,7 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 		 * needs no store: imx283_get_selection() answers it straight
 		 * from imx283->mode->crop, see __imx283_get_pad_crop().
 		 */
-		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = mode->crop;
+		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = imx283_output_crop(mode);
 	} else if (imx283->mode != mode) {
 		imx283->mode = mode;
 		imx283->fmt_code = fmt->format.code;
@@ -2335,8 +2385,11 @@ __imx283_get_pad_crop(struct imx283 *imx283,
 	switch (which) {
 	case V4L2_SUBDEV_FORMAT_TRY:
 		return v4l2_subdev_state_get_crop(sd_state, pad);
-	case V4L2_SUBDEV_FORMAT_ACTIVE:
-		return &imx283->mode->crop;
+	case V4L2_SUBDEV_FORMAT_ACTIVE: {
+		static struct v4l2_rect output_crop;
+		output_crop = imx283_output_crop(imx283->mode);
+		return &output_crop;
+	}
 	}
 
 	return NULL;
@@ -2434,8 +2487,8 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		cci_write(imx283, IMX283_REG_MDSEL4,
 			  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
 		{
-			u32 y_out_size = mode->crop.height / mode->vbin_ratio;
-			u32 write_v_size = y_out_size + mode->vertical_ob;
+			u32 y_out_size = imx283_output_height(mode);
+			u32 write_v_size = y_out_size;
 			u32 v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
 			s32 v_pos;
 
@@ -2449,13 +2502,14 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			cci_write(imx283, IMX283_REG_VWIDCUT, v_widcut, &ret);
 			cci_write(imx283, IMX283_REG_VWINPOS, v_pos, &ret);
 		}
-		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
+		cci_write(imx283, IMX283_REG_OB_SIZE_V, 0, &ret);
 	} else {
 		/* Preserve the existing timing/crop programming for other modes. */
 		cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
-			  mode->height - mode->vertical_ob, &ret);
-		cci_write(imx283, IMX283_REG_WRITE_VSIZE, mode->height, &ret);
-		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
+			  imx283_output_height(mode), &ret);
+		cci_write(imx283, IMX283_REG_WRITE_VSIZE,
+			  imx283_output_height(mode), &ret);
+		cci_write(imx283, IMX283_REG_OB_SIZE_V, 0, &ret);
 	}
 
 	/*
@@ -2468,9 +2522,12 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
-	cci_write(imx283, IMX283_REG_HTRIMMING_START, mode->crop.left, &ret);
-	cci_write(imx283, IMX283_REG_HTRIMMING_END,
-		  mode->crop.left + mode->crop.width, &ret);
+	{
+		struct v4l2_rect output_crop = imx283_output_crop(mode);
+		cci_write(imx283, IMX283_REG_HTRIMMING_START, output_crop.left, &ret);
+		cci_write(imx283, IMX283_REG_HTRIMMING_END,
+			  output_crop.left + output_crop.width, &ret);
+	}
 
 	/* Todo: These must be calculated based on the link-freq and mode */
 	cci_write(imx283, IMX283_REG_HMAX, mode->default_HMAX, &ret);
@@ -2681,7 +2738,11 @@ static int imx283_get_selection(struct v4l2_subdev *sd,
 
 		return 0;
 
-	case V4L2_SEL_TGT_CROP_DEFAULT:
+	case V4L2_SEL_TGT_CROP_DEFAULT: {
+		struct imx283 *imx283 = to_imx283(sd);
+		sel->r = imx283_output_crop(imx283->mode);
+		return 0;
+	}
 	case V4L2_SEL_TGT_CROP_BOUNDS:
 		sel->r = imx283_active_area;
 
@@ -2805,9 +2866,9 @@ static int imx283_init_controls(struct imx283 *imx283)
 	/* Initial vblank/hblank/exposure based on the current mode. */
 	imx283->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
 					   V4L2_CID_VBLANK,
-					   imx283_min_vmax(mode) - mode->height,
+					   imx283_min_vmax(mode) - imx283_output_height(mode),
 					   IMX283_VMAX_MAX, 1,
-					   mode->default_VMAX - mode->height);
+					   mode->default_VMAX - imx283_output_height(mode));
 
 	imx283->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
 					   V4L2_CID_HBLANK, 0, 0xffff, 1, 0);
