@@ -2548,8 +2548,15 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 * driver. The previous +1 extended the horizontal trimming window by
 	 * one sensor column and could expose a spurious right-edge column.
 	 */
+	/*
+	 * Mode-0 crop experiment: disable HOB while testing the true sensor
+	 * crop geometry. Bit 5 is HOB enable, not a generic reserved bit.
+	 * Keeping it enabled adds the leading optical-black columns to the
+	 * sensor output and makes it impossible to distinguish an HTRIMMING
+	 * coordinate error from HOB placement.
+	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
-		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
+		  IMX283_HTRIMMING_EN, &ret);
 	{
 		struct v4l2_rect output_crop = imx283_output_crop(mode);
 		cci_write(imx283, IMX283_REG_HTRIMMING_START,
