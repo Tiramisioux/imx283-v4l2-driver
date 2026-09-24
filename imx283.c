@@ -287,6 +287,13 @@ static const struct v4l2_rect imx283_active_area = {
 	.height = 3648,
 };
 
+static const struct v4l2_rect imx283_crop_in_area = {
+	.top = 72,
+	.left = 204,
+	.width = 5376,
+	.height = 3584,
+};
+
 struct IMX283_reg_list {
 	unsigned int num_of_regs;
 	const struct cci_reg_sequence *regs;
@@ -345,6 +352,7 @@ struct imx283_mode {
 	 * omits these unless experimental_modes is set.
 	 */
 	bool experimental;
+	bool active_only;
 };
 
 struct imx283_input_frequency {
@@ -572,7 +580,9 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 	}
 
 #define IMX283_CROP_1X1(_w, _h) \
-	IMX283_CROPPED_1X1_MODE((_w), (_h), (5472 - (_w)) / 2, (3648 - (_h)) / 2)
+	IMX283_CROPPED_1X1_MODE((_w), (_h), \
+		(imx283_crop_in_area.left + (imx283_crop_in_area.width - (_w)) / 2), \
+		(imx283_crop_in_area.top + (imx283_crop_in_area.height - (_h)) / 2)
 
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
@@ -583,10 +593,11 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		 */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 3648 + 16,
+		.width = 5376,
+		.height = 3584,
 		.min_HMAX = 887,
 		.min_VMAX = 3793,
+		.crop_min_VMAX = 3713,
 		.default_HMAX = 900,
 		.default_VMAX = 4000,
 		.min_SHR = 12,
@@ -597,7 +608,8 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+		.crop = imx283_crop_in_area,
+		.active_only = true,
 	},
 	{
 		/* 2784x1828 51.80fps readout mode 2 */
@@ -1141,22 +1153,25 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_CROP_1X1(1920, 768), /* 2.5:1 */
 	IMX283_CROP_1X1(1920, 752), /* 2.55:1 */
 
-	/* IMX283_MODE_0 aspect-ratio family (1x1 UHD-window zoom family). */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 2160, 2160, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 852), /* 1:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 2879, 2160, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 852), /* 1.33:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 2959, 2160, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 852), /* 1.37:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3240, 2160, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 852), /* 1.50:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 2160, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 852), /* 1.78:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 2076, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 894), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 2032, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 916), /* 1.89:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 2020, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 921), /* 1.90:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 1920, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 972), /* 2.00:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 1745, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 1059), /* 2.20:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 1729, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 1067), /* 2.22:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 1634, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 1115), /* 2.35:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 1607, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 1128), /* 2.39:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 1536, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 1164), /* 2.50:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3840, 1506, 887, 3793, 2305, 900, 4000, 12, 3694, 1, 1, 96, 16, 856, 1179), /* 2.55:1 */
+	/* IMX283_MODE_0 active-only crop-in aspect family. */
+	IMX283_CROPPED_1X1_MODE(3584, 3584, 1100, 72), /* 1:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 4042, 204, 843), /* 1.33:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 3924, 204, 902), /* 1.37:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 3584, 204, 72), /* 1.50:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 3020, 204, 354), /* 1.78:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2906, 204, 411), /* 1.85:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2844, 204, 442), /* 1.89:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2828, 204, 450), /* 1.90:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2688, 204, 518), /* 2.00:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2444, 204, 640), /* 2.20:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2422, 204, 651), /* 2.22:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2288, 204, 718), /* 2.35:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2248, 204, 738), /* 2.39:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2150, 204, 789), /* 2.50:1 */
+	IMX283_CROPPED_1X1_MODE(5376, 2108, 204, 810), /* 2.55:1 */
+
+	/* 2K / 1920 crop-in families. */
+
 };
 static const struct imx283_mode supported_modes_10bit[] = {
 	{
@@ -2468,6 +2483,12 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			cci_write(imx283, IMX283_REG_VWINPOS, v_pos, &ret);
 		}
 		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
+	} else if (mode->active_only) {
+		cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
+			  mode->crop.height / mode->vbin_ratio, &ret);
+		cci_write(imx283, IMX283_REG_WRITE_VSIZE,
+			  mode->crop.height / mode->vbin_ratio, &ret);
+		cci_write(imx283, IMX283_REG_OB_SIZE_V, 0, &ret);
 	} else {
 		/* Preserve the existing timing/crop programming for other modes. */
 		cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
@@ -2485,14 +2506,19 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 * one sensor column and could expose a spurious right-edge column.
 	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
-		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
+		  IMX283_HTRIMMING_EN, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_START, mode->crop.left, &ret);
 	cci_write(imx283, IMX283_REG_HTRIMMING_END,
 		  mode->crop.left + mode->crop.width, &ret);
 
 	/* Todo: These must be calculated based on the link-freq and mode */
 	cci_write(imx283, IMX283_REG_HMAX, mode->default_HMAX, &ret);
-	cci_write(imx283, IMX283_REG_VMAX, mode->default_VMAX, &ret);
+	{
+		u64 vmax = mode->default_VMAX;
+		if (mode->crop_min_VMAX && mode->crop_min_VMAX < vmax)
+			vmax = mode->crop_min_VMAX;
+		cci_write(imx283, IMX283_REG_VMAX, vmax, &ret);
+	}
 	cci_write(imx283, IMX283_REG_SHR, mode->min_SHR, &ret);
 
 	/* Disable embedded data */
