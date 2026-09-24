@@ -2549,17 +2549,31 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 * one sensor column and could expose a spurious right-edge column.
 	 */
 	/*
-	 * Bit 5 is HOB enable. For the cropped Mode-0 family we deliberately
-	 * leave HOB disabled while the active crop is programmed in native
-	 * sensor coordinates. The optical-black transport margin is described
-	 * separately by horizontal_ob/vertical_ob.
+	 * Mode-0 transport contains horizontal optical-black pixels before
+	 * the active image. HOB is therefore part of the sensor output window,
+	 * not part of the active crop itself.
+	 *
+	 * For a 2048-pixel active crop with 96 HOB columns, the sensor window
+	 * must be 2144 pixels wide:
+	 *
+	 *   HTRIMMING_START = active_left - 96
+	 *   active image     = active_left .. active_left + 2048
+	 *   HTRIMMING_END   = active_left + 2048
+	 *
+	 * This matches the transport geometry advertised by the mode and keeps
+	 * the optical-black columns in their actual native coordinate position.
 	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
-		  IMX283_HTRIMMING_EN, &ret);
+		  IMX283_HTRIMMING_EN | IMX283_HOB_EN, &ret);
 	{
 		struct v4l2_rect output_crop = imx283_output_crop(mode);
+		u32 htrim_start = output_crop.left;
+
+		if (mode->horizontal_ob && htrim_start >= mode->horizontal_ob)
+			htrim_start -= mode->horizontal_ob;
+
 		cci_write(imx283, IMX283_REG_HTRIMMING_START,
-			  output_crop.left, &ret);
+			  htrim_start, &ret);
 		cci_write(imx283, IMX283_REG_HTRIMMING_END,
 			  output_crop.left + output_crop.width, &ret);
 	}
