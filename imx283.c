@@ -273,12 +273,26 @@ static const struct v4l2_rect imx283_native_area = {
 	.height = 3710,
 };
 
+/*
+ * Sensor active area and Sony recommended recording area.
+ *
+ * Keep these as two distinct coordinate spaces:
+ *
+ *   native array:        5592 x 3710
+ *   active area:         (96,16) 5496 x 3694
+ *   recommended area:    (108,40) 5472 x 3648
+ *
+ * HTRIMMING uses native sensor coordinates, so crop rectangles must be
+ * expressed against the native array, not against the transport frame.
+ */
 static const struct v4l2_rect imx283_active_area = {
-	/*
-	 * Sony's 5472x3648 recommended recording area is located at
-	 * (108,40) in the 5592x3710 native array.  Keep X/Y in the
-	 * correct coordinate axes: left=108, top=40.
-	 */
+	.top = 16,
+	.left = 96,
+	.width = 5496,
+	.height = 3694,
+};
+
+static const struct v4l2_rect imx283_recommended_area = {
 	.top = 40,
 	.left = 108,
 	.width = 5472,
@@ -633,8 +647,10 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  */ 
 #define IMX283_CROP_1X1(_w, _h) \
 	IMX283_CROPPED_1X1_MODE((_w), (_h), \
-		imx283_active_area.left + ((imx283_active_area.width - (_w)) / 2), \
-		imx283_active_area.top + ((imx283_active_area.height - (_h)) / 2))
+		imx283_recommended_area.left + \
+			((imx283_recommended_area.width - (_w)) / 2), \
+		imx283_recommended_area.top + \
+			((imx283_recommended_area.height - (_h)) / 2))
 
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
