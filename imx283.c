@@ -50,8 +50,10 @@
  * at the black level and column 96 is the first picture column, rows
  * 2160..2175 are zero-filled.
  */
-#define V4L2_CID_IMX283_MODE_ACTIVE_LEFT (V4L2_CID_USER_IMX283_BASE + 5)
-#define V4L2_CID_IMX283_MODE_ACTIVE_TOP  (V4L2_CID_USER_IMX283_BASE + 6)
+#define V4L2_CID_IMX283_MODE_ACTIVE_LEFT   (V4L2_CID_USER_IMX283_BASE + 5)
+#define V4L2_CID_IMX283_MODE_ACTIVE_TOP    (V4L2_CID_USER_IMX283_BASE + 6)
+#define V4L2_CID_IMX283_MODE_ACTIVE_WIDTH  (V4L2_CID_USER_IMX283_BASE + 7)
+#define V4L2_CID_IMX283_MODE_ACTIVE_HEIGHT (V4L2_CID_USER_IMX283_BASE + 8)
 
 struct cci_reg_sequence {
 	u32 reg;
@@ -1536,6 +1538,8 @@ struct imx283 {
 	struct v4l2_ctrl *mode_crop_height_ctrl;
 	struct v4l2_ctrl *mode_active_left_ctrl;
 	struct v4l2_ctrl *mode_active_top_ctrl;
+	struct v4l2_ctrl *mode_active_width_ctrl;
+	struct v4l2_ctrl *mode_active_height_ctrl;
 
 	/* Current mode */
 	const struct imx283_mode *mode;
@@ -2109,6 +2113,16 @@ static const struct v4l2_ctrl_config imx283_cfg_mode_active_top = {
 	.name = "Mode Active Top", .type = V4L2_CTRL_TYPE_INTEGER,
 	.min = 0, .max = 3664, .step = 1, .def = 0,
 };
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_width = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_WIDTH,
+	.name = "Mode Active Width", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 1, .max = 5568, .step = 1, .def = 5472,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_height = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_HEIGHT,
+	.name = "Mode Active Height", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 1, .max = 3664, .step = 1, .def = 3648,
+};
 
 static int imx283_enum_mbus_code(struct v4l2_subdev *sd,
 				 struct v4l2_subdev_state *sd_state,
@@ -2218,6 +2232,10 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 	 */
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl, mode->horizontal_ob);
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_width_ctrl,
+			   mode->width - mode->horizontal_ob);
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_height_ctrl,
+			   mode->height - mode->vertical_ob);
 }
 
 static u64 imx283_min_vmax(const struct imx283_mode *mode)
@@ -2795,12 +2813,22 @@ static int imx283_init_controls(struct imx283 *imx283)
 	imx283->mode_active_top_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
 							    &imx283_cfg_mode_active_top,
 							    NULL);
+	imx283->mode_active_width_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							      &imx283_cfg_mode_active_width,
+							      NULL);
+	imx283->mode_active_height_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							       &imx283_cfg_mode_active_height,
+							       NULL);
 	if (imx283->mode_crop_height_ctrl)
 		imx283->mode_crop_height_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	if (imx283->mode_active_left_ctrl)
 		imx283->mode_active_left_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	if (imx283->mode_active_top_ctrl)
 		imx283->mode_active_top_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_active_width_ctrl)
+		imx283->mode_active_width_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_active_height_ctrl)
+		imx283->mode_active_height_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/* Initial vblank/hblank/exposure based on the current mode. */
 	imx283->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
