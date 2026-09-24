@@ -123,7 +123,7 @@ struct cci_reg_sequence {
 #define IMX283_REG_HTRIMMING		CCI_REG8(0x300b)
 #define   IMX283_MDVREV			BIT(0) // VFLIP
 #define   IMX283_HTRIMMING_EN		BIT(4)
-#define   IMX283_HTRIMMING_RESERVED	BIT(5)
+#define   IMX283_HOB_EN			BIT(5)
 
 #define IMX283_REG_VWINPOS		CCI_REG16_LE(0x300f)
 #define IMX283_REG_VWIDCUT		CCI_REG16_LE(0x3011)
@@ -2549,11 +2549,10 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 * one sensor column and could expose a spurious right-edge column.
 	 */
 	/*
-	 * Mode-0 crop experiment: disable HOB while testing the true sensor
-	 * crop geometry. Bit 5 is HOB enable, not a generic reserved bit.
-	 * Keeping it enabled adds the leading optical-black columns to the
-	 * sensor output and makes it impossible to distinguish an HTRIMMING
-	 * coordinate error from HOB placement.
+	 * Bit 5 is HOB enable. For the cropped Mode-0 family we deliberately
+	 * leave HOB disabled while the active crop is programmed in native
+	 * sensor coordinates. The optical-black transport margin is described
+	 * separately by horizontal_ob/vertical_ob.
 	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
 		  IMX283_HTRIMMING_EN, &ret);
