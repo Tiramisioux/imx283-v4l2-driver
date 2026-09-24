@@ -1894,16 +1894,69 @@ static inline void get_mode_table(unsigned int code,
 	}
 }
 
-/* Get bayer order based on flip setting. */
+/*
+ * Return the Bayer code presented to the receiver after applying the
+ * sensor readout flips.
+ *
+ * The IMX283 starts in RGGB phase. HFLIP/VFLIP change which physical
+ * photosite becomes the first transmitted pixel, so the media-bus code
+ * must be rotated accordingly. This is especially important for cropped
+ * modes: HTRIMMING changes the first transmitted sensor column/row, but
+ * the CFA metadata still has to describe that new origin.
+ */
 static u32 imx283_get_format_code(struct imx283 *imx283, u32 code)
 {
-	unsigned int i;
-	lockdep_assert_held(&imx283->mutex);
-	for (i = 0; i < ARRAY_SIZE(codes); i++)
-		if (codes[i] == code)
-			break;
+	bool hflip = imx283->hflip && imx283->hflip->val;
+	bool vflip = imx283->vflip && imx283->vflip->val;
+	unsigned int bpp;
+	unsigned int base;
 
-	return codes[i];
+	lockdep_assert_held(&imx283->mutex);
+
+	switch (code) {
+	case MEDIA_BUS_FMT_SRGGB12_1X12:
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+	case MEDIA_BUS_FMT_SGBRG12_1X12:
+	case MEDIA_BUS_FMT_SBGGR12_1X12:
+		bpp = 12;
+		break;
+	case MEDIA_BUS_FMT_SRGGB10_1X10:
+	case MEDIA_BUS_FMT_SGRBG10_1X10:
+	case MEDIA_BUS_FMT_SGBRG10_1X10:
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
+		bpp = 10;
+		break;
+	default:
+		return code;
+	}
+
+	/*
+	 * Map the requested Bayer phase through the active sensor flips.
+	 * A horizontal flip swaps R<->G within each row; a vertical flip
+	 * swaps the two rows. Applying both therefore maps RGGB <-> BGGR.
+	 */
+	switch (code) {
+	case MEDIA_BUS_FMT_SRGGB12_1X12:
+		base = 0;
+		break;
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+		base = 1;
+		break;
+	case MEDIA_BUS_FMT_SGBRG12_1X12:
+		base = 2;
+		break;
+	default:
+		base = 3;
+		break;
+	}
+
+	if (hflip)
+		base ^= 1;
+	if (vflip)
+		base ^= 2;
+
+	return (bpp == 12 ? MEDIA_BUS_FMT_SRGGB12_1X12 :
+			    MEDIA_BUS_FMT_SRGGB10_1X10) + base;
 }
 
 static void imx283_set_default_format(struct imx283 *imx283)
