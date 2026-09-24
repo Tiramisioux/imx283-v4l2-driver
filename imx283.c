@@ -287,6 +287,7 @@ static const struct v4l2_rect imx283_active_area = {
 	.height = 3648,
 };
 
+/* 5376x3584 is the new active-only 3:2 (1.50:1) recording crop. */
 static const struct v4l2_rect imx283_crop_in_area = {
 	.top = 72,
 	.left = 204,
@@ -568,21 +569,22 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 #define IMX283_CROPPED_1X1_MODE(_cw, _ch, _left, _top) \
 	{ \
 		.mode = IMX283_MODE_0, .bpp = 12, \
-		.width = (_cw) + 96, .height = (_ch) + 16, \
+		.width = (_cw), .height = (_ch), \
 		.min_HMAX = 887, .min_VMAX = 3793, \
-		.crop_min_VMAX = (_ch) + 16 + 129, \
+		.crop_min_VMAX = (_ch) + 129, \
 		.default_HMAX = 900, .default_VMAX = 4000, \
 		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
 		.hbin_ratio = 1, .vbin_ratio = 1, \
 		.horizontal_ob = 96, .vertical_ob = 16, \
 		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
-		.experimental = false, \
+		.experimental = false, .active_only = true, \
 	}
 
 #define IMX283_CROP_1X1(_w, _h) \
 	IMX283_CROPPED_1X1_MODE((_w), (_h), \
 		(imx283_crop_in_area.left + (imx283_crop_in_area.width - (_w)) / 2), \
-		(imx283_crop_in_area.top + (imx283_crop_in_area.height - (_h)) / 2)
+		(imx283_crop_in_area.top + (imx283_crop_in_area.height - (_h)) / 2))
+
 
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
@@ -1169,9 +1171,6 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_CROPPED_1X1_MODE(5376, 2248, 204, 738), /* 2.39:1 */
 	IMX283_CROPPED_1X1_MODE(5376, 2150, 204, 789), /* 2.50:1 */
 	IMX283_CROPPED_1X1_MODE(5376, 2108, 204, 810), /* 2.55:1 */
-
-	/* 2K / 1920 crop-in families. */
-
 };
 static const struct imx283_mode supported_modes_10bit[] = {
 	{
