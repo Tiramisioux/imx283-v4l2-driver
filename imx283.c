@@ -648,12 +648,14 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  * coordinates. That displaced every 2K/1920 crop 108 columns left and
  * 40 rows up, leaving optical-black pixels inside the nominal crop.
  */ 
+#define IMX283_EVEN(x) ((x) & ~1U)
+
 #define IMX283_CROP_1X1(_w, _h) \
 	IMX283_CROPPED_1X1_MODE((_w), (_h), \
-		imx283_recommended_area.left + \
-			((imx283_recommended_area.width - (_w)) / 2), \
-		imx283_recommended_area.top + \
-			((imx283_recommended_area.height - (_h)) / 2))
+		IMX283_EVEN(imx283_recommended_area.left + \
+			((imx283_recommended_area.width - (_w)) / 2)), \
+		IMX283_EVEN(imx283_recommended_area.top + \
+			((imx283_recommended_area.height - (_h)) / 2)))
 
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
@@ -678,7 +680,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 0,
 		.vertical_ob = 0,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
+		.crop = imx283_recommended_area,
 	},
 	{
 		/* 2784x1828 51.80fps readout mode 2 */
