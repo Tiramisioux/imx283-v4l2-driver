@@ -1157,12 +1157,24 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2289, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 787), /* 2.39:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2187, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 838), /* 2.50:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 5472, 2145, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4, 40, 859), /* 2.55:1 */
-		/* 1x1 cropped-in 2K family. */
+		/*
+	 * Standard cinema crop families.
+	 *
+	 * Keep the active crop dimensions as the requested picture dimensions;
+	 * IMX283_CROPPED_1X1_MODE() adds the sensor's 96-column horizontal and
+	 * 16-line vertical optical-black transport area without changing the
+	 * active image dimensions.
+	 *
+	 * 2K 16:9 = 2048x1152 and HD 16:9 = 1920x1080. The remaining entries
+	 * retain the established even-pixel framing dimensions for their
+	 * corresponding aspect ratios.
+	 */
+	/* 1x1 cropped-in 2K family. */
 	IMX283_CROP_1X1(2048, 2048), /* 1:1 */
 	IMX283_CROP_1X1(2048, 1540), /* 1.33:1 */
 	IMX283_CROP_1X1(2048, 1494), /* 1.37:1 */
 	IMX283_CROP_1X1(2048, 1364), /* 1.5:1 */
-	IMX283_CROP_1X1(2048, 1150), /* 1.78:1 */
+	IMX283_CROP_1X1(2048, 1152), /* 1.78:1 */
 	IMX283_CROP_1X1(2048, 1106), /* 1.85:1 */
 	IMX283_CROP_1X1(2048, 1084), /* 1.89:1 */
 	IMX283_CROP_1X1(2048, 1078), /* 1.9:1 */
@@ -1173,12 +1185,12 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_CROP_1X1(2048, 856), /* 2.39:1 */
 	IMX283_CROP_1X1(2048, 818), /* 2.5:1 */
 	IMX283_CROP_1X1(2048, 802), /* 2.55:1 */
-	/* 1x1 cropped-in 1920 family. */
+	/* 1x1 cropped-in HD family. */
 	IMX283_CROP_1X1(1920, 1920), /* 1:1 */
 	IMX283_CROP_1X1(1920, 1444), /* 1.33:1 */
 	IMX283_CROP_1X1(1920, 1400), /* 1.37:1 */
 	IMX283_CROP_1X1(1920, 1280), /* 1.5:1 */
-	IMX283_CROP_1X1(1920, 1078), /* 1.78:1 */
+	IMX283_CROP_1X1(1920, 1080), /* 1.78:1 */
 	IMX283_CROP_1X1(1920, 1038), /* 1.85:1 */
 	IMX283_CROP_1X1(1920, 1016), /* 1.89:1 */
 	IMX283_CROP_1X1(1920, 1010), /* 1.9:1 */
