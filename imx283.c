@@ -622,8 +622,19 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.experimental = false, \
 	}
 
+/*
+ * Mode-0 cropped windows use native sensor coordinates.
+ *
+ * The 5472x3648 recommended active area begins at native (108,40).
+ * The previous macro centered crops in active-area coordinates but then
+ * passed those values directly to HTRIMMING, which expects native
+ * coordinates. That displaced every 2K/1920 crop 108 columns left and
+ * 40 rows up, leaving optical-black pixels inside the nominal crop.
+ */ 
 #define IMX283_CROP_1X1(_w, _h) \
-	IMX283_CROPPED_1X1_MODE((_w), (_h), (5472 - (_w)) / 2, (3648 - (_h)) / 2)
+	IMX283_CROPPED_1X1_MODE((_w), (_h), \
+		imx283_active_area.left + ((imx283_active_area.width - (_w)) / 2), \
+		imx283_active_area.top + ((imx283_active_area.height - (_h)) / 2))
 
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
