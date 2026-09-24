@@ -632,7 +632,9 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
 		.hbin_ratio = 1, .vbin_ratio = 1, \
 		.horizontal_ob = 96, .vertical_ob = 16, \
-		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
+		/* Crop is the complete sensor transport window in OB mode. */ \
+		.crop = { .left = (_left), .top = (_top), \
+			.width = (_cw) + 96, .height = (_ch) + 16 }, \
 		.experimental = false, \
 	}
 
@@ -2516,9 +2518,20 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
 		{
 			u32 y_out_size = mode->crop.height / mode->vbin_ratio;
-			u32 write_v_size = y_out_size + mode->vertical_ob;
-			u32 v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
+			u32 write_v_size;
+			u32 v_widcut;
 			s32 v_pos;
+
+			/*
+			 * In optical-black output mode the crop describes the complete
+			 * transport window. The vertical OB lines are included in the
+			 * transport height but are not part of Y_OUT_SIZE.
+			 */
+			if (mode->crop.width < 5472 && mode->vertical_ob)
+				y_out_size -= mode->vertical_ob;
+
+			write_v_size = y_out_size + mode->vertical_ob;
+			v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
 
 			if (imx283->vflip->val)
 				v_pos = ((-(s32)mode->crop.top / mode->vbin_ratio) / 2) + mode->vst;
@@ -2563,19 +2576,26 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 * This matches the transport geometry advertised by the mode and keeps
 	 * the optical-black columns in their actual native coordinate position.
 	 */
-	cci_write(imx283, IMX283_REG_HTRIMMING,
-		  IMX283_HTRIMMING_EN | IMX283_HOB_EN, &ret);
 	{
 		struct v4l2_rect output_crop = imx283_output_crop(mode);
-		u32 htrim_start = output_crop.left;
+		u32 htrim = IMX283_HTRIMMING_EN;
+		u32 htrim_end = output_crop.left + output_crop.width;
 
-		if (mode->horizontal_ob && htrim_start >= mode->horizontal_ob)
-			htrim_start -= mode->horizontal_ob;
+		/*
+		 * Sony's OB mode defines crop as the complete transport window,
+		 * while HTRIMMING_END excludes the 96 HOB columns. This is the
+		 * same geometry used by the upstream IMX283 OB implementation.
+		 */
+		if (mode->crop.width < 5472 && mode->horizontal_ob) {
+			htrim |= IMX283_HOB_EN;
+			htrim_end -= mode->horizontal_ob * mode->hbin_ratio;
+		}
 
+		cci_write(imx283, IMX283_REG_HTRIMMING, htrim, &ret);
 		cci_write(imx283, IMX283_REG_HTRIMMING_START,
-			  htrim_start, &ret);
+			  output_crop.left, &ret);
 		cci_write(imx283, IMX283_REG_HTRIMMING_END,
-			  output_crop.left + output_crop.width, &ret);
+			  htrim_end, &ret);
 	}
 
 	/* Todo: These must be calculated based on the link-freq and mode */
