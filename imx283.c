@@ -625,16 +625,16 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 #define IMX283_CROPPED_1X1_MODE(_cw, _ch, _left, _top) \
 	{ \
 		.mode = IMX283_MODE_0, .bpp = 12, \
-		.width = (_cw) + 96, .height = (_ch) + 16, \
+		.width = (_cw), .height = (_ch), \
 		.min_HMAX = 887, .min_VMAX = 3793, \
-		.crop_min_VMAX = (_ch) + 16 + 129, \
+		.crop_min_VMAX = (_ch) + 129, \
 		.default_HMAX = 900, .default_VMAX = 4000, \
 		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
 		.hbin_ratio = 1, .vbin_ratio = 1, \
-		.horizontal_ob = 96, .vertical_ob = 16, \
-		/* Crop is the complete sensor transport window in OB mode. */ \
+		.horizontal_ob = 0, .vertical_ob = 0, \
+		/* Active-image-only transport: no HOB/VOB in the frame. */ \
 		.crop = { .left = (_left), .top = (_top), \
-			.width = (_cw) + 96, .height = (_ch) + 16 }, \
+			.width = (_cw), .height = (_ch) }, \
 		.experimental = false, \
 	}
 
@@ -2522,14 +2522,6 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			u32 v_widcut;
 			s32 v_pos;
 
-			/*
-			 * In optical-black output mode the crop describes the complete
-			 * transport window. The vertical OB lines are included in the
-			 * transport height but are not part of Y_OUT_SIZE.
-			 */
-			if (mode->crop.width < 5472 && mode->vertical_ob)
-				y_out_size -= mode->vertical_ob;
-
 			write_v_size = y_out_size + mode->vertical_ob;
 			v_widcut = ((mode->veff - y_out_size) / 2) + mode->vct;
 
@@ -2578,24 +2570,14 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 */
 	{
 		struct v4l2_rect output_crop = imx283_output_crop(mode);
-		u32 htrim = IMX283_HTRIMMING_EN;
-		u32 htrim_end = output_crop.left + output_crop.width;
 
-		/*
-		 * Sony's OB mode defines crop as the complete transport window,
-		 * while HTRIMMING_END excludes the 96 HOB columns. This is the
-		 * same geometry used by the upstream IMX283 OB implementation.
-		 */
-		if (mode->crop.width < 5472 && mode->horizontal_ob) {
-			htrim |= IMX283_HOB_EN;
-			htrim_end -= mode->horizontal_ob * mode->hbin_ratio;
-		}
-
-		cci_write(imx283, IMX283_REG_HTRIMMING, htrim, &ret);
+		/* Cropped modes use active-image-only transport: do not emit HOB. */
+		cci_write(imx283, IMX283_REG_HTRIMMING,
+			  IMX283_HTRIMMING_EN, &ret);
 		cci_write(imx283, IMX283_REG_HTRIMMING_START,
 			  output_crop.left, &ret);
 		cci_write(imx283, IMX283_REG_HTRIMMING_END,
-			  htrim_end, &ret);
+			  output_crop.left + output_crop.width, &ret);
 	}
 
 	/* Todo: These must be calculated based on the link-freq and mode */
