@@ -52,6 +52,18 @@
  */
 #define V4L2_CID_IMX283_MODE_ACTIVE_LEFT (V4L2_CID_USER_IMX283_BASE + 5)
 #define V4L2_CID_IMX283_MODE_ACTIVE_TOP  (V4L2_CID_USER_IMX283_BASE + 6)
+/*
+ * The delivered picture size in the mode's own (post-binning) transport
+ * pixels -- what ActiveArea's width/height should be, given Active Left/Top
+ * above as its origin. This is deliberately its own field rather than a
+ * derived "width - horizontal_ob" / "height - vertical_ob": on this sensor's
+ * 2x2-binned modes that arithmetic overclaims by 32 columns (see
+ * imx283_active_width() and development/imx283-active-size/BRIEF.md), so a
+ * consumer computing it from the other controls would reproduce the same
+ * bug this pair exists to fix.
+ */
+#define V4L2_CID_IMX283_MODE_ACTIVE_WIDTH  (V4L2_CID_USER_IMX283_BASE + 7)
+#define V4L2_CID_IMX283_MODE_ACTIVE_HEIGHT (V4L2_CID_USER_IMX283_BASE + 8)
 
 struct cci_reg_sequence {
 	u32 reg;
@@ -334,6 +346,21 @@ struct imx283_mode {
 	u32 horizontal_ob;
 	u32 vertical_ob;
 
+	/*
+	 * Delivered picture size, when it is NOT simply width/height minus
+	 * the optical black above. Zero means "not overridden": use
+	 * width - horizontal_ob / height - vertical_ob, which is right for
+	 * every entry except the three 2x2-binned ones that set this
+	 * explicitly (see imx283_active_width()/imx283_active_height() and
+	 * development/imx283-active-size/BRIEF.md). Leaving this zero on
+	 * every other entry is deliberate: nobody has measured whether the
+	 * same shortfall applies to 3x3 binning or to 1x1 crops other than
+	 * the one UHD frame that has been checked, and this field must not
+	 * be used to guess at those.
+	 */
+	u32 active_width;
+	u32 active_height;
+
 	/* Analog crop rectangle. */
 	struct v4l2_rect crop;
 
@@ -372,6 +399,33 @@ static unsigned int imx283_output_height(const struct imx283_mode *mode)
 static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
 {
 	return mode->crop;
+}
+
+/*
+ * The picture size actually delivered inside the transport frame -- the
+ * "Mode Active Width"/"Mode Active Height" controls exist to publish
+ * exactly this (see their V4L2_CID comment).
+ *
+ * width - horizontal_ob / height - vertical_ob is the obvious formula and
+ * is right for every 1x1 and 3x3 entry measured so far, but it is
+ * measurably WRONG for 2x2-binned readout: two DNGs (see
+ * development/imx283-active-size/BRIEF.md) show 2x2 modes losing a further
+ * 32 columns beyond horizontal_ob, to stale transport buffer that ships as
+ * if it were picture. mode->active_width/active_height carry that
+ * correction where it has been measured; zero falls back to the naive
+ * arithmetic everywhere else, so an unmeasured entry's behaviour cannot
+ * change by adding this function.
+ */
+static unsigned int imx283_active_width(const struct imx283_mode *mode)
+{
+	return mode->active_width ? mode->active_width
+				   : mode->width - mode->horizontal_ob;
+}
+
+static unsigned int imx283_active_height(const struct imx283_mode *mode)
+{
+	return mode->active_height ? mode->active_height
+				    : mode->height - mode->vertical_ob;
 }
 
 static const struct imx283_mode *imx283_find_nearest_mode(
@@ -688,6 +742,20 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 2,
 		.horizontal_ob = 96/2,
 		.vertical_ob = 8/2,
+		/*
+		 * MEASURED, not derived: this entry's own 2784x1828 frame is
+		 * CINEPI_26-09-23_002603_F43 (development/imx283-active-size/
+		 * BRIEF.md). Unpacking that DNG's raw strip finds picture
+		 * only through column 2751 -- 2704 columns, not the 2736 that
+		 * width - horizontal_ob (2784 - 48) would claim. A second
+		 * frame at this same width/horizontal_ob/binning but a
+		 * narrower aspect crop (CINEPI_26-09-24_235655_F06, 2784x1098)
+		 * shows the identical cutoff. The 32 trailing columns are
+		 * constant in both and byte-identical between the two --
+		 * recordings a day apart cannot share real sensor data, so
+		 * that band is stale transport buffer, not picture.
+		 */
+		.active_width = 2704,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
@@ -713,6 +781,15 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 2,
 		.horizontal_ob = 48,
 		.vertical_ob = 4,
+		/*
+		 * Same 2x2-binned width/horizontal_ob as IMX283_MODE_2 above,
+		 * and the same measured shortfall: see that entry's comment
+		 * and development/imx283-active-size/BRIEF.md. Both DNGs used
+		 * to establish 2704 were captured at this width (2784) and
+		 * this horizontal_ob (48); the family, not the height, is
+		 * what the measurement is keyed on.
+		 */
+		.active_width = 2704,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 	},
 	{
@@ -1344,6 +1421,18 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.vbin_ratio = 2,
 		.horizontal_ob = 48,
 		.vertical_ob = 4,
+		/*
+		 * NOT measured on this mode -- no MODE_6 DNG exists, and this
+		 * entry is .experimental and has never run on hardware (see
+		 * the comment above). 2704 is the 2x2-binned shortfall
+		 * measured on IMX283_MODE_2/MODE_2A (development/
+		 * imx283-active-size/BRIEF.md), applied here by family --
+		 * same width (2784), same horizontal_ob (48), same hbin_ratio
+		 * (2) -- because that is the only evidence available, not
+		 * because this mode was itself checked. Do not read this as
+		 * a MODE_6 measurement.
+		 */
+		.active_width = 2704,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 		.experimental = true,
 	},
@@ -1599,6 +1688,8 @@ struct imx283 {
 	struct v4l2_ctrl *mode_crop_height_ctrl;
 	struct v4l2_ctrl *mode_active_left_ctrl;
 	struct v4l2_ctrl *mode_active_top_ctrl;
+	struct v4l2_ctrl *mode_active_width_ctrl;
+	struct v4l2_ctrl *mode_active_height_ctrl;
 
 	/* Current mode */
 	const struct imx283_mode *mode;
@@ -1823,6 +1914,31 @@ static void imx283_check_mode_table(struct device *dev, const char *name,
 					 output_crop.width, output_width, modes[i].hbin_ratio,
 					 output_width * modes[i].hbin_ratio);
 		}
+
+		/*
+		 * The delivered-picture-size controls (WP-283-7, "Mode Active
+		 * Width"/"Mode Active Height") must describe pixels that
+		 * actually fit inside the frame this entry transports. These
+		 * fields are u32, so an underflowing "negative" size (e.g. an
+		 * .active_width left at 0 on an entry whose horizontal_ob
+		 * exceeds .width, or a bad override) wraps around to a huge
+		 * value rather than going below zero -- caught here by the
+		 * same "larger than the transport frame" comparison, not by a
+		 * separate sign check.
+		 */
+		if (!imx283_active_width(&modes[i]) ||
+		    imx283_active_width(&modes[i]) > modes[i].width)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): active width %u is zero or exceeds the %u-column transport frame\n",
+				 name, i, modes[i].width, modes[i].height, modes[i].mode,
+				 imx283_active_width(&modes[i]), modes[i].width);
+
+		if (!imx283_active_height(&modes[i]) ||
+		    imx283_active_height(&modes[i]) > modes[i].height)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): active height %u is zero or exceeds the %u-row transport frame\n",
+				 name, i, modes[i].width, modes[i].height, modes[i].mode,
+				 imx283_active_height(&modes[i]), modes[i].height);
 	}
 }
 
@@ -2173,6 +2289,28 @@ static const struct v4l2_ctrl_config imx283_cfg_mode_active_top = {
 	.min = 0, .max = 3664, .step = 1, .def = 0,
 };
 
+/*
+ * The picture size delivered inside the transport frame (see the
+ * V4L2_CID_IMX283_MODE_ACTIVE_WIDTH/HEIGHT comment for why this cannot be
+ * left for a consumer to derive from Active Left/Top and the frame size).
+ * Published from imx283_active_width()/imx283_active_height(), which is
+ * also what imx283_check_mode_table() below checks.
+ *
+ * .min = 1 rather than 0: an active size of zero is not a smaller picture,
+ * it is a broken mode entry, and a control value of zero should not look
+ * like a valid reading to whatever downstream reads it.
+ */
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_width = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_WIDTH,
+	.name = "Mode Active Width", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 1, .max = 5568, .step = 1, .def = 5472,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_height = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_HEIGHT,
+	.name = "Mode Active Height", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 1, .max = 3664, .step = 1, .def = 3648,
+};
+
 static int imx283_enum_mbus_code(struct v4l2_subdev *sd,
 				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_mbus_code_enum *code)
@@ -2282,6 +2420,18 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl,
 					mode->horizontal_ob);
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
+	/*
+	 * NOT width - horizontal_ob / height - vertical_ob inline here: that
+	 * arithmetic is exactly the bug this pair of controls exists to fix
+	 * on 2x2-binned modes (see imx283_active_width()/imx283_active_height()
+	 * and development/imx283-active-size/BRIEF.md). Going through those
+	 * two functions is what lets the three measured entries' override
+	 * take effect while every other mode keeps today's behaviour.
+	 */
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_width_ctrl,
+					imx283_active_width(mode));
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_height_ctrl,
+					imx283_active_height(mode));
 }
 
 static u64 imx283_min_vmax(const struct imx283_mode *mode)
@@ -2876,6 +3026,16 @@ static int imx283_init_controls(struct imx283 *imx283)
 		imx283->mode_active_left_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	if (imx283->mode_active_top_ctrl)
 		imx283->mode_active_top_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	imx283->mode_active_width_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							      &imx283_cfg_mode_active_width,
+							      NULL);
+	imx283->mode_active_height_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							       &imx283_cfg_mode_active_height,
+							       NULL);
+	if (imx283->mode_active_width_ctrl)
+		imx283->mode_active_width_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_active_height_ctrl)
+		imx283->mode_active_height_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/* Initial vblank/hblank/exposure based on the current mode. */
 	imx283->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
