@@ -350,9 +350,14 @@ struct imx283_mode {
 	 * Delivered picture size, when it is NOT simply width/height minus
 	 * the optical black above. Zero means "not overridden": use
 	 * width - horizontal_ob / height - vertical_ob, which is right for
-	 * every entry except the three 2x2-binned ones that set this
-	 * explicitly (see imx283_active_width()/imx283_active_height() and
-	 * development/imx283-active-size/BRIEF.md). Leaving this zero on
+	 * every entry except the measured full-width 2x2-binned class (see
+	 * imx283_active_width()/imx283_active_height() and
+	 * development/imx283-active-size/BRIEF.md). Most of that class is
+	 * NOT set here at all -- imx283_active_width() recognises it from
+	 * hbin_ratio/crop.width/bpp on every entry, base struct literal or
+	 * IMX283_ASPECT_MODE() row alike, so a table edit cannot leave a
+	 * stale explicit value behind. This field only carries an explicit
+	 * override where one predates that detection. Leaving this zero on
 	 * every other entry is deliberate: nobody has measured whether the
 	 * same shortfall applies to 3x3 binning or to 1x1 crops other than
 	 * the one UHD frame that has been checked, and this field must not
@@ -408,18 +413,80 @@ static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
  *
  * width - horizontal_ob / height - vertical_ob is the obvious formula and
  * is right for every 1x1 and 3x3 entry measured so far, but it is
- * measurably WRONG for 2x2-binned readout: two DNGs (see
- * development/imx283-active-size/BRIEF.md) show 2x2 modes losing a further
- * 32 columns beyond horizontal_ob, to stale transport buffer that ships as
- * if it were picture. mode->active_width/active_height carry that
- * correction where it has been measured; zero falls back to the naive
- * arithmetic everywhere else, so an unmeasured entry's behaviour cannot
- * change by adding this function.
+ * measurably WRONG for the full-width 2x2-binned class -- see
+ * imx283_is_measured_full_width_2x2() below for exactly what was measured
+ * and on which frames. mode->active_width/active_height carry an explicit
+ * override where one predates that detection; otherwise
+ * imx283_is_measured_full_width_2x2() recognises the measured class from
+ * the mode's own fields, on every entry (base struct literal or
+ * IMX283_ASPECT_MODE() row alike), so an unmeasured entry's behaviour
+ * cannot change by adding either function.
  */
+
+/*
+ * Sensor window width (crop.width, i.e. what IMX283_ASPECT_MODE() takes as
+ * _cw) of the one 2x2-binned readout that has been measured. Not a general
+ * "full width" constant on its own: MODE_1/MODE_1A/MODE_3 also carry a
+ * 5472-column row at other binning ratios, which is why
+ * imx283_is_measured_full_width_2x2() below also checks hbin_ratio and bpp
+ * before treating a 5472-column entry as measured.
+ */
+#define IMX283_MEASURED_2X2_WINDOW	5472
+
+/* The measured shortfall, in binned (post-2x2) columns: 2736 - 2704. */
+#define IMX283_MEASURED_2X2_SHORTFALL	32
+
+/*
+ * True for exactly the readout condition development/imx283-active-size/
+ * GAP.md and BRIEF.md measured, and for nothing else. Identified by the
+ * mode's OWN fields (hbin_ratio, crop.width, bpp) -- never by mode enum,
+ * table position, or a line-number list -- so editing a row's window
+ * width or binning moves it into or out of this class automatically
+ * instead of leaving a stale claim behind.
+ *
+ * THE MEASUREMENT: two DNGs, recorded a day apart, both 12-bit with
+ * hbin_ratio 2 and a 5472-column sensor window --
+ * CINEPI_26-09-23_002603_F43 (2784x1828) and CINEPI_26-09-24_235655_F06
+ * (2784x1098, a narrower aspect crop of the same readout). Unpacking both
+ * raw strips finds picture only through column 2751 -- 2704 columns, not
+ * the 2736 that width - horizontal_ob (2784 - 48) claims. Columns
+ * 2752-2783 are constant, sd 0.0, and BYTE-IDENTICAL between the two
+ * files: two unrelated recordings a day apart cannot share real sensor
+ * data, which is what proves that band is stale transport buffer, not
+ * picture.
+ *
+ * SCOPE -- deliberately excluded, do not widen this function to cover:
+ *   - a narrower 2x2 window (crop.width other than 5472): the macro
+ *     families also carry 4850/4996/4614/4216/4104/3648/3076/3000-column
+ *     rows; nobody knows whether the loss is a constant 32 columns or
+ *     scales with the window (development/imx283-active-size/GAP.md).
+ *   - 3x3 binning (hbin_ratio 3): no DNG exists at any window.
+ *   - 1x1 crops (hbin_ratio 1): the one 1x1 frame measured (a 10-bit UHD
+ *     MODE_1C frame) showed NO shortfall at all.
+ *   - IMX283_MODE_6: it also has hbin_ratio 2 and a 5472-column window,
+ *     but it is 10-bit (both measured frames above are 12-bit) and its
+ *     own readout-mode comment calls it "Vertical 2 binning horizontal
+ *     2/4, subsampling" -- mdsel {0x18,0x21,0x00,0x09} -- a different
+ *     mechanism from MODE_2/MODE_2A's "Horizontal / Vertical 2/2-line
+ *     binning" ({0x0d,0x11,0x50,0x00} / {0x0d,0x11,0x70,0x50}). The
+ *     bpp == 12 check below excludes it on that evidence; it is not
+ *     folded in "by family".
+ */
+static bool imx283_is_measured_full_width_2x2(const struct imx283_mode *mode)
+{
+	return mode->hbin_ratio == 2 &&
+	       mode->crop.width == IMX283_MEASURED_2X2_WINDOW &&
+	       mode->bpp == 12;
+}
+
 static unsigned int imx283_active_width(const struct imx283_mode *mode)
 {
-	return mode->active_width ? mode->active_width
-				   : mode->width - mode->horizontal_ob;
+	if (mode->active_width)
+		return mode->active_width;
+	if (imx283_is_measured_full_width_2x2(mode))
+		return mode->width - mode->horizontal_ob -
+		       IMX283_MEASURED_2X2_SHORTFALL;
+	return mode->width - mode->horizontal_ob;
 }
 
 static unsigned int imx283_active_height(const struct imx283_mode *mode)
@@ -1422,17 +1489,25 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.horizontal_ob = 48,
 		.vertical_ob = 4,
 		/*
-		 * NOT measured on this mode -- no MODE_6 DNG exists, and this
-		 * entry is .experimental and has never run on hardware (see
-		 * the comment above). 2704 is the 2x2-binned shortfall
-		 * measured on IMX283_MODE_2/MODE_2A (development/
-		 * imx283-active-size/BRIEF.md), applied here by family --
-		 * same width (2784), same horizontal_ob (48), same hbin_ratio
-		 * (2) -- because that is the only evidence available, not
-		 * because this mode was itself checked. Do not read this as
-		 * a MODE_6 measurement.
+		 * .active_width deliberately left at 0 (naive width -
+		 * horizontal_ob fallback, 2736). An earlier version of this
+		 * comment set it to 2704 "by family resemblance" to
+		 * IMX283_MODE_2/MODE_2A -- wrong: no MODE_6 DNG exists (this
+		 * entry is .experimental and has never run on hardware, see
+		 * the comment above), and the resemblance itself does not
+		 * hold up. Both measured frames (development/
+		 * imx283-active-size/BRIEF.md) are 12-bit; this mode is
+		 * 10-bit. And MODE_2/MODE_2A's readout-mode comment is
+		 * "Horizontal / Vertical 2/2-line binning" (mdsel
+		 * {0x0d,0x11,0x50,0x00} / {0x0d,0x11,0x70,0x50}) while this
+		 * mode's is "Vertical 2 binning horizontal 2/4, subsampling"
+		 * (mdsel {0x18,0x21,0x00,0x09}) -- a different horizontal
+		 * readout mechanism, not the plain 2-line bin the measurement
+		 * was taken on. imx283_is_measured_full_width_2x2() excludes
+		 * this entry on the bpp check alone; this comment records the
+		 * mdsel reasoning behind that exclusion for anyone tempted to
+		 * re-add the override.
 		 */
-		.active_width = 2704,
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 		.experimental = true,
 	},
@@ -1916,15 +1991,15 @@ static void imx283_check_mode_table(struct device *dev, const char *name,
 		}
 
 		/*
-		 * The delivered-picture-size controls (WP-283-7, "Mode Active
-		 * Width"/"Mode Active Height") must describe pixels that
-		 * actually fit inside the frame this entry transports. These
-		 * fields are u32, so an underflowing "negative" size (e.g. an
-		 * .active_width left at 0 on an entry whose horizontal_ob
-		 * exceeds .width, or a bad override) wraps around to a huge
-		 * value rather than going below zero -- caught here by the
-		 * same "larger than the transport frame" comparison, not by a
-		 * separate sign check.
+		 * The delivered-picture-size controls ("Mode Active Width"/
+		 * "Mode Active Height", see development/imx283-active-size/
+		 * BRIEF.md) must describe pixels that actually fit inside the
+		 * frame this entry transports. These fields are u32, so an
+		 * underflowing "negative" size (e.g. an .active_width left at
+		 * 0 on an entry whose horizontal_ob exceeds .width, or a bad
+		 * override) wraps around to a huge value rather than going
+		 * below zero -- caught here by the same "larger than the
+		 * transport frame" comparison, not by a separate sign check.
 		 */
 		if (!imx283_active_width(&modes[i]) ||
 		    imx283_active_width(&modes[i]) > modes[i].width)
@@ -1939,6 +2014,27 @@ static void imx283_check_mode_table(struct device *dev, const char *name,
 				 "%s[%u] (%ux%u, readout-mode enum %u): active height %u is zero or exceeds the %u-row transport frame\n",
 				 name, i, modes[i].width, modes[i].height, modes[i].mode,
 				 imx283_active_height(&modes[i]), modes[i].height);
+
+		/*
+		 * Guard against the next person widening the measured class
+		 * by accident -- either by hand-setting .active_width on an
+		 * entry outside it, or by loosening
+		 * imx283_is_measured_full_width_2x2() itself. If an entry's
+		 * active width is not the naive fallback (width -
+		 * horizontal_ob), it had better be because
+		 * imx283_is_measured_full_width_2x2() says so; anything else
+		 * is an invented number. A wrong active_width crops real
+		 * picture out of every DNG that mode produces -- strictly
+		 * worse than the stale-buffer band it would be claiming to
+		 * remove (development/imx283-active-size/GAP.md).
+		 */
+		if (imx283_active_width(&modes[i]) !=
+			    modes[i].width - modes[i].horizontal_ob &&
+		    !imx283_is_measured_full_width_2x2(&modes[i]))
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): active width %u is neither the fallback nor the measured full-width-2x2 class -- invented?\n",
+				 name, i, modes[i].width, modes[i].height, modes[i].mode,
+				 imx283_active_width(&modes[i]));
 	}
 }
 
@@ -2423,10 +2519,12 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 	/*
 	 * NOT width - horizontal_ob / height - vertical_ob inline here: that
 	 * arithmetic is exactly the bug this pair of controls exists to fix
-	 * on 2x2-binned modes (see imx283_active_width()/imx283_active_height()
-	 * and development/imx283-active-size/BRIEF.md). Going through those
-	 * two functions is what lets the three measured entries' override
-	 * take effect while every other mode keeps today's behaviour.
+	 * on the measured full-width 2x2-binned class (see
+	 * imx283_active_width()/imx283_active_height() and
+	 * development/imx283-active-size/BRIEF.md). Going through those two
+	 * functions is what lets every entry in that class -- base struct
+	 * literal or IMX283_ASPECT_MODE() row alike -- get the correction
+	 * while every other mode keeps today's behaviour.
 	 */
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_width_ctrl,
 					imx283_active_width(mode));
