@@ -407,6 +407,44 @@ static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
 }
 
 /*
+ * Crop in the transport-frame coordinate space exposed on the image pad.
+ *
+ * mode->crop is deliberately kept in native sensor coordinates because it
+ * is used to program HTRIMMING/VWINPOS.  It must NOT be returned as the
+ * V4L2 image-pad crop: the image pad starts at transport pixel (0,0), where
+ * the sensor emits horizontal optical black before the active picture.
+ *
+ * For the IMX283 modes in this driver the horizontal optical black is
+ * leading and the vertical optical black is trailing.  Therefore the
+ * active picture begins at (horizontal_ob, 0) in the CSI transport frame.
+ */
+static struct v4l2_rect imx283_transport_active_crop(
+	const struct imx283_mode *mode)
+{
+	struct v4l2_rect crop = {
+		.left = mode->horizontal_ob,
+		.top = 0,
+		.width = imx283_active_width(mode),
+		.height = imx283_active_height(mode),
+	};
+
+	return crop;
+}
+
+static struct v4l2_rect imx283_transport_frame_bounds(
+	const struct imx283_mode *mode)
+{
+	struct v4l2_rect bounds = {
+		.left = 0,
+		.top = 0,
+		.width = imx283_output_width(mode),
+		.height = imx283_output_height(mode),
+	};
+
+	return bounds;
+}
+
+/*
  * The picture size actually delivered inside the transport frame -- the
  * "Mode Active Width"/"Mode Active Height" controls exist to publish
  * exactly this (see their V4L2_CID comment).
@@ -2409,12 +2447,11 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 		*framefmt = fmt->format;
 
 		/*
-		 * Keep the TRY crop in step with the TRY format, so a caller
-		 * that probes a mode and then reads its crop back sees the
-		 * pair that belongs together. The two deliberately differ in
-		 * size: the static mode table retains the optical-black transport margins;
-		 * the driver now emits an active-only frame, so the TRY crop is the
-		 * effective sensor window actually delivered to V4L2.
+		 * Keep the TRY crop in step with the TRY format, using transport
+		 * coordinates.  mode->crop is in native sensor coordinates and is
+		 * only for programming the sensor registers; returning it here would
+		 * put the crop origin outside the 5568x3664 image pad because the
+		 * 108x40 native sensor origin is not the 96x0 transport-frame origin.
 		 *
 		 * Only the TRY state is touched. This driver still uses the
 		 * legacy subdev state model -- internal_ops.open seeds the
@@ -2427,7 +2464,8 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 		 * needs no store: imx283_get_selection() answers it straight
 		 * from imx283->mode->crop, see __imx283_get_pad_crop().
 		 */
-		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = imx283_output_crop(mode);
+		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) =
+			imx283_transport_active_crop(mode);
 	} else if (imx283->mode != mode) {
 		imx283->mode = mode;
 		imx283->fmt_code = fmt->format.code;
@@ -2449,7 +2487,7 @@ __imx283_get_pad_crop(struct imx283 *imx283,
 		return v4l2_subdev_state_get_crop(sd_state, pad);
 	case V4L2_SUBDEV_FORMAT_ACTIVE: {
 		static struct v4l2_rect output_crop;
-		output_crop = imx283_output_crop(imx283->mode);
+		output_crop = imx283_transport_active_crop(imx283->mode);
 		return &output_crop;
 	}
 	}
@@ -2803,13 +2841,14 @@ static int imx283_get_selection(struct v4l2_subdev *sd,
 
 	case V4L2_SEL_TGT_CROP_DEFAULT: {
 		struct imx283 *imx283 = to_imx283(sd);
-		sel->r = imx283_output_crop(imx283->mode);
+		sel->r = imx283_transport_active_crop(imx283->mode);
 		return 0;
 	}
-	case V4L2_SEL_TGT_CROP_BOUNDS:
-		sel->r = imx283_active_area;
-
+	case V4L2_SEL_TGT_CROP_BOUNDS: {
+		struct imx283 *imx283 = to_imx283(sd);
+		sel->r = imx283_transport_frame_bounds(imx283->mode);
 		return 0;
+	}
 	}
 
 	return -EINVAL;
