@@ -1903,7 +1903,7 @@ static void imx283_set_default_format(struct imx283 *imx283)
 {
 	/* Set default mode to max resolution */
 	imx283->mode = &supported_modes_12bit[0];
-	imx283->fmt_code = MEDIA_BUS_FMT_SRGGB12_1X12;
+	imx283->fmt_code = MEDIA_BUS_FMT_SBGGR12_1X12;
 }
 
 // Move this to .init_cfg
