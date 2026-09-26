@@ -1000,19 +1000,19 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	 * the small fixed-window "UHD zoom" family at the end of this table. All
 	 * three used a correct centred origin already for their OWN geometry, but
 	 * none of them is the *ratio* family REBUILD.md specifies, and carrying
-	 * three shapes of the same 14 ratios is exactly what section 7 ("drop
+	 * three shapes of the same 13 ratios is exactly what section 7 ("drop
 	 * redundant families") rules out: one entry per (bpp, binning, ratio).
 	 *
 	 * Quantisation (REBUILD.md "The quantisation rule"): MODE_0 is 12-bit
 	 * 1x1 with no faster sibling, so every ratio uses the full active area.
 	 * The three ratios narrower than the sensor's own 5472:3648 (=1.5:1) shape
 	 * -- 1:1, 1.33:1, 1.37:1 -- keep the full 3648-row height and crop the
-	 * sides; the other eleven keep the full 5472-column width and crop top
+	 * sides; the other ten keep the full 5472-column width and crop top
 	 * and bottom. Both directions round UP to the next multiple of 4 (the
 	 * 1x1 delivered step), which is what "prefer the larger frame" means once
 	 * a ratio does not land on an exact quantum. The base window width
 	 * (5472) is not itself a standard cinema size, so unlike IMX283_MODE_1C
-	 * below (whose window genuinely is 3840 = UHD), none of these fourteen
+	 * below (whose window genuinely is 3840 = UHD), none of these thirteen
 	 * sizes lands on a standard number without shrinking the frame to get
 	 * there -- so no substitution applies in this family.
 	 *
@@ -1030,7 +1030,6 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5016, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 3080, 887, 3793, 3221, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.78:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2956, 887, 3793, 3105, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2884, 887, 3793, 3041, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2880, 887, 3793, 3025, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2736, 887, 3793, 2881, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.00:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2488, 887, 3793, 2633, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.20:1 */
@@ -1051,7 +1050,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2432, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.33:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2508, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.37:1 */
 	/*
-	 * IMX283_MODE_2A aspect-ratio family: the other eleven (WIDE) ratios, on
+	 * IMX283_MODE_2A aspect-ratio family: the other ten (WIDE) ratios, on
 	 * the faster 2x2 parent -- measured cost of using it here is 0.0-0.1% of
 	 * frame area (REBUILD.md section 7), free for practical purposes.
 	 *
@@ -1070,7 +1069,6 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1540, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.78:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1478, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1442, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1440, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1368, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.00:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1244, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.20:1 */
@@ -1081,7 +1079,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1072, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.55:1 */
 	/*
 	 * IMX283_MODE_3 aspect-ratio family: only parent for 12-bit 3x3, so all
-	 * fourteen ratios use it, against the full active area. Fact 2 measured
+	 * thirteen ratios use it, against the full active area. Fact 2 measured
 	 * ZERO shortfall for 3x3 at the one window tested (5472 sensor columns,
 	 * 1824 delivered) -- a different, larger delivered width than every row
 	 * below, so none of this family's rows are in the measured class either;
@@ -1093,7 +1091,6 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1672, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.37:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 1028, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.78:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 984, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 964, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 960, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 912, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.00:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 828, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.20:1 */
@@ -1399,7 +1396,7 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 4864, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 5016, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
 	/*
-	 * IMX283_MODE_1A aspect-ratio family: the other eleven (WIDE) ratios, on
+	 * IMX283_MODE_1A aspect-ratio family: the other ten (WIDE) ratios, on
 	 * the faster parent -- 0.0-0.1% frame-area cost (REBUILD.md section 7).
 	 * 1x1 has never shown a shortfall at any measured window (GAP.md), so
 	 * unlike IMX283_MODE_2A's 2x2 family there is no true-vs-nominal split
@@ -1415,7 +1412,6 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 * serves this ratio. Same reasoning as MODE_1C's 1.78:1 below.
 	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2956, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2884, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2880, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2736, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.00:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2488, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.20:1 */
@@ -1440,7 +1436,7 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 *
 	 * Fourteen ratios, one parent: the three TALL ratios (1:1, 1.33:1,
 	 * 1.37:1) keep the window's full 2160-row height and crop its sides; the
-	 * other eleven keep the full 3840-column width and crop top/bottom. The
+	 * other ten keep the full 3840-column width and crop top/bottom. The
 	 * 1.78:1 row is DELIBERATELY ABSENT: at this window's own native shape
 	 * (3840x2160 = 16:9 = 1.7778), quantising 1.78:1 lands on exactly
 	 * 3840x2160 -- the same crop.left/.top/.width/.height as the base
@@ -1459,7 +1455,6 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	IMX283_ASPECT_MODE_1C(2880, 2160), /* 1.33:1 */
 	IMX283_ASPECT_MODE_1C(2972, 2160), /* 1.37:1 */
 	IMX283_ASPECT_MODE_1C(3840, 2076), /* 1.85:1 */
-	IMX283_ASPECT_MODE_1C(3840, 2024), /* 1.89:1 */
 	IMX283_ASPECT_MODE_1C(3840, 2020), /* 1.90:1 */
 	IMX283_ASPECT_MODE_1C(3840, 1920), /* 2.00:1 */
 	IMX283_ASPECT_MODE_1C(3840, 1744), /* 2.20:1 */
