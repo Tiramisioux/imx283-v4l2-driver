@@ -737,49 +737,46 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		imx283_active_area.top  + ((imx283_active_area.height - (_h)) / 2))
 
 /*
- * IMX283_MODE_1C's own native window (its 0x30 drive mode), hardware-
- * confirmed off-centre in the full active area -- see the base
- * IMX283_MODE_1C entry's comment in supported_modes_10bit[] for the
- * measurement that pins .left at native column 236 and rules out centring
- * it against imx283_active_area. Every ratio in the IMX283_MODE_1C aspect
- * family is a centred crop of THIS window instead: the 0x30 readout
- * addresses the array differently from mode 0, and reusing
- * imx283_active_area here would move a real, tested hardware window back
- * into the grey-ramp/colour-noise failure that .left = 236 exists to
- * avoid.
+ * IMX283_MODE_1C's own native window (its 0x30 drive mode). Every ratio in
+ * the IMX283_MODE_1C aspect family is a centred crop of THIS window: the
+ * 0x30 readout addresses the array differently from mode 0, so its window
+ * is kept separate from imx283_active_area rather than reusing it directly.
+ * See the base IMX283_MODE_1C entry's comment in supported_modes_10bit[]
+ * for the .left measurement history, and the WINDOW_LEFT block below for
+ * which candidate is currently selected and why.
  */
 /*
  * IMX283_MODE_1C horizontal window origin -- TWO CANDIDATES, ONLY ONE EVER
  * TESTED. See development/imx283-active-size/ROUND2.md, Defect C4.
  *
- * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): hardware-tested. Centring
- * this window's .left against imx283_active_area (236 -> 856) streamed a
- * grey ramp and colour noise on real hardware, so 236 is where the 0x30
- * readout mode actually wants its window.
+ * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): hardware-tested and known
+ * to stream a clean picture. Kept as the fallback -- see below.
  *
  * IMX283_MODE_1C_WINDOW_LEFT_CENTRED (924): the *correctly* centred value,
  * i.e. imx283_active_area.left + (imx283_active_area.width - 3840) / 2
- * = 108 + (5472 - 3840) / 2 = 924. This has NEVER been tested. The earlier
- * A/B that seemed to rule out centring actually tested 856, which is
- * 40 + (5472 - 3840) / 2 -- centred against the SWAPPED active_area.left
- * = 40 that this branch corrected, not against the real active_area.left
- * = 108. That A/B's conclusion ("centring fails") is therefore invalid for
- * 924, which is a different, untested value.
+ * = 108 + (5472 - 3840) / 2 = 924.
  *
- * ACTIVE CHOICE: HW_CONFIRMED (236). Left unchanged in this branch: 924
- * cannot be tested here (no Pi access from this session), and the
- * instruction for this round is not to silently swap an unverified value
- * in for a hardware-confirmed one. See ROUND2.md Defect C4 for the exact
- * A/B recipe to test 924 versus 236 on hardware.
+ * ACTIVE CHOICE: CENTRED (924). This is now active and is UNTESTED ON
+ * HARDWARE -- nobody has streamed it. The earlier A/B that appeared to rule
+ * out centring this window tested 856, which is 40 + (5472 - 3840) / 2 --
+ * centred against the OLD SWAPPED active_area.left of 40, a value this
+ * branch chain corrected to 108. That result (a grey ramp and colour noise)
+ * does not transfer to 924, a different, never-tested value derived from
+ * the corrected origin.
+ *
+ * 236 remains available as IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED and is
+ * the value to fall back to if 924 streams a grey ramp or colour noise on
+ * real hardware. See ROUND2.md Defect C4 for the exact A/B recipe.
  */
 #define IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED 236
-#define IMX283_MODE_1C_WINDOW_LEFT_CENTRED      924	/* UNTESTED -- see comment above */
-#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED
+#define IMX283_MODE_1C_WINDOW_LEFT_CENTRED      924
+#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_CENTRED
 
 static const struct v4l2_rect imx283_mode_1c_window = {
 	/*
-	 * .left: see IMX283_MODE_1C_WINDOW_LEFT above -- 236, hardware-
-	 * confirmed, both candidates documented there.
+	 * .left: see IMX283_MODE_1C_WINDOW_LEFT above -- currently 924
+	 * (CENTRED, untested on hardware), with 236 (HW_CONFIRMED) kept as
+	 * the fallback. Both candidates documented there.
 	 *
 	 * .top = 784 is NOT the hardware-confirmed half: it was 852, and 852
 	 * is what you get from
@@ -1328,12 +1325,12 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 *    the vertical window is whatever drive mode 0x30 hardwires.
 		 *    Nothing in this driver can tell us where that is.
 		 *  - .crop.left is NOT metadata: it is written as
-		 *    HTRIMMING_START for every mode. Centring therefore moves
-		 *    the real horizontal window from native column 236 to 856,
-		 *    i.e. 620 px to the right -- a visible reframing of this
-		 *    mode, and the fix for it if 236 was ever honoured.
+		 *    HTRIMMING_START for every mode. Moving it is therefore a
+		 *    real, visible reframing of this mode, not bookkeeping.
 		 *
-		 * .left = 236 is HARDWARE-CONFIRMED. Do not centre it.
+		 * .left = 236 is HARDWARE-CONFIRMED: it is known to stream a
+		 * clean picture, and is kept as the fallback if the currently
+		 * active value (see below) fails on hardware.
 		 *
 		 * The two coordinates are not the same kind of thing:
 		 *
@@ -1355,17 +1352,16 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 * a window running off the end of what drive mode 0x30
 		 * actually reads. At 236 it is a clean picture.
 		 *
-		 * So 95183c8's claim was right even though it showed no
-		 * working: 0x30 DOES address the array differently from the
-		 * all-pixel modes, and 236 is where its window starts. The
-		 * defect was only ever .top, which named a row inside the
-		 * optical black.
-		 *
-		 * The consequence is that this mode's crop is genuinely
-		 * off-centre horizontally, and the settings page draws its
-		 * crop box left of centre because that is the truth. Changing
-		 * the picture to match the diagram is not available: the
-		 * hardware decides where this window is.
+		 * That A/B's conclusion does NOT rule out centring in general:
+		 * 856 = 40 + (5472 - 3840) / 2 is centred against the SWAPPED
+		 * active_area.left of 40 that this branch chain corrected to
+		 * 108, not against the real active area. The correctly centred
+		 * value against the corrected origin is 924 = 108 +
+		 * (5472 - 3840) / 2, a different number that was never tested
+		 * by that A/B. See IMX283_MODE_1C_WINDOW_LEFT above (and
+		 * ROUND2.md Defect C4): this branch now selects 924, UNTESTED
+		 * ON HARDWARE, with 236 kept here as the evidence for the
+		 * fallback if 924 turns out to fail the same way 856 did.
 		 */
 		.crop = {
 			/*
@@ -1427,12 +1423,15 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 *
 	 * Every ratio here is IMX283_ASPECT_MODE_1C(), which crops from
 	 * imx283_mode_1c_window (see its own comment above), not from
-	 * imx283_active_area: IMX283_MODE_1C's window is hardware-confirmed
-	 * off-centre, at native column 236, and centring it against the full
-	 * active area -- what the old, generic IMX283_ASPECT_MODE() literals did
-	 * for this family, same bug as everywhere else in this table -- streams a
-	 * grey ramp and colour noise instead of a picture (see the base
-	 * IMX283_MODE_1C entry above for the measurement).
+	 * imx283_active_area directly: the 0x30 readout addresses the array
+	 * differently from mode 0, and centring this window's HTRIMMING_START
+	 * against the wrong origin (native column 40, the SWAPPED
+	 * active_area.left this branch corrected) streamed a grey ramp and
+	 * colour noise instead of a picture (see the base IMX283_MODE_1C entry
+	 * above for the measurement). IMX283_MODE_1C_WINDOW_LEFT currently
+	 * selects the CENTRED candidate (924, against the corrected origin),
+	 * which is UNTESTED ON HARDWARE; see that macro's comment for the
+	 * HW_CONFIRMED (236) fallback.
 	 *
 	 * Fourteen ratios, one parent: the three TALL ratios (1:1, 1.33:1,
 	 * 1.37:1) keep the window's full 2160-row height and crop its sides; the
