@@ -52,6 +52,18 @@
  */
 #define V4L2_CID_IMX283_MODE_ACTIVE_LEFT (V4L2_CID_USER_IMX283_BASE + 5)
 #define V4L2_CID_IMX283_MODE_ACTIVE_TOP  (V4L2_CID_USER_IMX283_BASE + 6)
+/*
+ * The delivered picture size in the mode's own (post-binning) transport
+ * pixels -- what ActiveArea's width/height should be, given Active Left/Top
+ * above as its origin. This is deliberately its own field rather than a
+ * derived "width - horizontal_ob" / "height - vertical_ob": on this sensor's
+ * 2x2-binned modes that arithmetic overclaims by 32 columns (see
+ * imx283_active_width() and development/imx283-active-size/BRIEF.md), so a
+ * consumer computing it from the other controls would reproduce the same
+ * bug this pair exists to fix.
+ */
+#define V4L2_CID_IMX283_MODE_ACTIVE_WIDTH  (V4L2_CID_USER_IMX283_BASE + 7)
+#define V4L2_CID_IMX283_MODE_ACTIVE_HEIGHT (V4L2_CID_USER_IMX283_BASE + 8)
 
 struct cci_reg_sequence {
 	u32 reg;
@@ -251,6 +263,17 @@ struct cci_reg_sequence {
  */
 static bool experimental_modes;
 module_param(experimental_modes, bool, 0444);
+/*
+ * Apply the experimental per-crop VMAX floor by default. The driver is
+ * normally autoloaded by the camera device, so requiring a manual modprobe
+ * argument would make the experiment needlessly fragile. Set crop_vmax=0
+ * only when explicitly disabling the experiment for a test.
+ */
+static bool crop_vmax = true;
+module_param(crop_vmax, bool, 0444);
+MODULE_PARM_DESC(crop_vmax,
+		  "Use the per-crop VMAX floor on Mode-0 vertical crops (experimental, "
+		  "UNMEASURED: see development/imx283-crop-fps/. Default 1 = use the experimental per-crop floor; set 0 to keep the Mode-0 floor.)");
 MODULE_PARM_DESC(experimental_modes,
 		  "Enable unvalidated readout modes 1S, 4, 5 and 6 (default: off, see EXPERIMENTAL_CROPS.md)");
 
@@ -263,8 +286,13 @@ static const struct v4l2_rect imx283_native_area = {
 };
 
 static const struct v4l2_rect imx283_active_area = {
-	.top = 108,
-	.left = 40,
+	/*
+	 * Sony's 5472x3648 recommended recording area is located at
+	 * (108,40) in the 5592x3710 native array.  Keep X/Y in the
+	 * correct coordinate axes: left=108, top=40.
+	 */
+	.top = 40,
+	.left = 108,
 	.width = 5472,
 	.height = 3648,
 };
@@ -293,6 +321,9 @@ struct imx283_mode {
 	/* minimum V-timing */
 	u64 min_VMAX;
 
+	/* Experimental per-crop VMAX floor; zero means use min_VMAX. */
+	u64 crop_min_VMAX;
+
 	/* default H-timing */
 	u64 default_HMAX;
 
@@ -315,6 +346,26 @@ struct imx283_mode {
 	u32 horizontal_ob;
 	u32 vertical_ob;
 
+	/*
+	 * Delivered picture size, when it is NOT simply width/height minus
+	 * the optical black above. Zero means "not overridden": use
+	 * width - horizontal_ob / height - vertical_ob, which is right for
+	 * every entry except the measured full-width 2x2-binned class (see
+	 * imx283_active_width()/imx283_active_height() and
+	 * development/imx283-active-size/BRIEF.md). Most of that class is
+	 * NOT set here at all -- imx283_active_width() recognises it from
+	 * hbin_ratio/crop.width/bpp on every entry, base struct literal or
+	 * IMX283_ASPECT_MODE() row alike, so a table edit cannot leave a
+	 * stale explicit value behind. This field only carries an explicit
+	 * override where one predates that detection. Leaving this zero on
+	 * every other entry is deliberate: nobody has measured whether the
+	 * same shortfall applies to 3x3 binning or to 1x1 crops other than
+	 * the one UHD frame that has been checked, and this field must not
+	 * be used to guess at those.
+	 */
+	u32 active_width;
+	u32 active_height;
+
 	/* Analog crop rectangle. */
 	struct v4l2_rect crop;
 
@@ -325,6 +376,104 @@ struct imx283_mode {
 	 */
 	bool experimental;
 };
+
+/*
+ * IMX283 transport geometry.
+ *
+ * HTRIMMING selects the active sensor window, but it does not remove the
+ * sensor's leading horizontal optical-black columns from the CSI-2 packet.
+ * Likewise, WRITE_VSIZE includes the trailing vertical optical-black rows.
+ * Therefore mode->width/height are the actual transport dimensions seen by
+ * CSI-2, while mode->crop describes the active sensor window inside them.
+ *
+ * This distinction is critical: advertising active-only dimensions while
+ * the sensor still prepends HOB makes the CSI receiver interpret the wrong
+ * line length, producing the horizontal coloured-striping artifact seen on
+ * CM5.
+ */
+static unsigned int imx283_output_width(const struct imx283_mode *mode)
+{
+	return mode->width;
+}
+
+static unsigned int imx283_output_height(const struct imx283_mode *mode)
+{
+	return mode->height;
+}
+
+static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
+{
+	return mode->crop;
+}
+
+/*
+ * The picture size actually delivered inside the transport frame -- the
+ * "Mode Active Width"/"Mode Active Height" controls exist to publish
+ * exactly this (see their V4L2_CID comment).
+ *
+ * It is simply width - horizontal_ob / height - vertical_ob, with
+ * mode->active_width/active_height as a per-entry override for a mode that
+ * is ever shown to deliver something else. Nothing currently sets them.
+ *
+ * HISTORY, because this was briefly much more complicated and the reason
+ * matters. Two DNGs recorded a day apart -- CINEPI_26-09-23_002603_F43 and
+ * CINEPI_26-09-24_235655_F06, both 12-bit, hbin_ratio 2, 5472-column
+ * window -- showed picture only through column 2751: 2704 columns, not the
+ * 2736 this formula gives. Columns 2752-2783 were constant, sd 0.0, and
+ * byte-identical between the two files, which proved they were stale
+ * transport buffer rather than picture. That was read as a hardware limit
+ * ("the 2x2 readout caps at 2704 delivered columns") and a classifier was
+ * added to subtract 32 for that class.
+ *
+ * It was not a hardware limit. Both files were shot while
+ * imx283_active_area still had .left and .top SWAPPED, so a full-width
+ * window was programmed with HTRIMMING_START = 40 instead of 108 -- 68
+ * columns left of where the active area actually begins. The readout ran
+ * off the right-hand end of the active pixels and the transport padded
+ * what was missing. With the origin corrected, the same mode delivers all
+ * 2736 columns: measured 2026-09-26 on 2784x1828, optical black 0-47,
+ * picture 48-2783, and ZERO columns with sd 0.0 anywhere in the frame.
+ *
+ * So the subtraction is gone. Keeping it would have cropped 32 columns of
+ * real picture out of every full-width 2x2 DNG -- the exact failure the
+ * override exists to prevent, arrived at from the opposite direction.
+ */
+static unsigned int imx283_active_width(const struct imx283_mode *mode)
+{
+	if (mode->active_width)
+		return mode->active_width;
+	return mode->width - mode->horizontal_ob;
+}
+
+static unsigned int imx283_active_height(const struct imx283_mode *mode)
+{
+	return mode->active_height ? mode->active_height
+				    : mode->height - mode->vertical_ob;
+}
+
+static const struct imx283_mode *imx283_find_nearest_mode(
+	const struct imx283_mode *modes, unsigned int num_modes,
+	unsigned int requested_width, unsigned int requested_height)
+{
+	const struct imx283_mode *best = &modes[0];
+	unsigned int best_score = UINT_MAX, i;
+
+	for (i = 0; i < num_modes; i++) {
+		unsigned int w = imx283_output_width(&modes[i]);
+		unsigned int h = imx283_output_height(&modes[i]);
+		unsigned int dw = w > requested_width ? w - requested_width :
+						 requested_width - w;
+		unsigned int dh = h > requested_height ? h - requested_height :
+						 requested_height - h;
+		unsigned int score = dw + dh;
+
+		if (score < best_score) {
+			best = &modes[i];
+			best_score = score;
+		}
+	}
+	return best;
+}
 
 struct imx283_input_frequency {
 	unsigned int mhz;
@@ -493,19 +642,179 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 /*
  * Mode configs.
  *
- * WP-283-3: do not derive a shorter VMAX from a shorter vertical crop.
- * Mainline has no crop modes at all, so there is no mainline precedent
- * for a per-crop VMAX floor, and this sensor's own binned modes (2, 2A,
- * 3) already carry a *higher* min_VMAX than the uncropped 1x1 mode 0
- * despite reading out far fewer lines -- VMAX counts sensor scan lines,
- * not output lines, so "shorter crop, so lower VMAX" does not follow.
- * Every Mode-0 crop entry below correctly keeps the full-frame
- * min_VMAX/default_VMAX. A per-crop floor needs the datasheet or a
- * measured Pi sweep (a separate package), not an assumption here.
+ * CONFIRMED: HMAX tracks emitted columns. MODE_3 emits all 5472 columns
+ * and declares min_HMAX 284; its shorter HMAX is therefore not a result
+ * of horizontal binning alone.
+ *
+ * CONFIRMED: VMAX tracks the sensor's scanned lines, which is why binning
+ * cannot shorten the vertical period. A VCROP window is different from
+ * binning: rows excluded by the window are not scanned. The vendor-preset
+ * VCROP configurations in this file (MODE_1A, MODE_1S, MODE_2A and MODE_4)
+ * all carry reduced VMAX floors, while the Mode-0 crops are driver-programmed
+ * arbitrary VWIDCUT windows.
+ *
+ * UNKNOWN: whether an arbitrary driver-programmed Mode-0 VWIDCUT window
+ * shortens the sensor scan in the same way as the vendor-preset windows.
+ * That requires hardware measurement; see development/imx283-crop-fps/.
+ *
+ * MODE_2A is a direct counterexample to the old "binned modes carry a higher
+ * floor" wording: its min_VMAX is 3300, below Mode 0's 3793. Neither 3793
+ * nor any Mode-0 crop floor is treated as authoritative by this comment.
  */
+
+/*
+ * Experimental aspect-ratio crop variants.
+ *
+ * The crop rectangle is expressed in native sensor coordinates. The
+ * reported transport dimensions include the mode's optical-black area.
+ * These entries are geometry experiments only; they retain the parent
+ * mode's timing floor until measured on hardware.
+ *
+ * REBUILD (development/imx283-active-size/REBUILD.md): this macro used to
+ * take _left/_top as literal arguments, and every one of its 105 call
+ * sites carried a value authored against the OLD, swapped
+ * imx283_active_area (left=40, top=108 instead of the correct left=108,
+ * top=40). Correcting the constant without correcting the 105 literals
+ * left every row off-centre, and 67 of them outside the active area
+ * entirely -- a half-applied fix.
+ *
+ * The fix here is structural, not a value swap: the macro no longer HAS a
+ * left/top parameter. It takes the DELIVERED (post-binning) picture size
+ * and derives the sensor window and its origin itself from
+ * imx283_active_area, through CENTERED_RECTANGLE -- the same helper the
+ * base struct literals above already use. There is no longer any way to
+ * express an off-centre or hard-coded origin through this macro; the only
+ * way to move a row's crop is to change imx283_active_area itself.
+ */
+#define IMX283_ASPECT_MODE(_mode, _bpp, _w, _h, _hmax, _vmax, _crop_vmax, _dhmax, _dvmax, _shr, _veff, _hb, _vb, _hob, _vob) \
+	{ \
+		.mode = (_mode), .bpp = (_bpp), \
+		.width = (_w) + (_hob), \
+		.height = (_h) + (_vob), \
+		.min_HMAX = (_hmax), .min_VMAX = (_vmax), \
+		.crop_min_VMAX = (_crop_vmax), \
+		.default_HMAX = (_dhmax), .default_VMAX = (_dvmax), \
+		.min_SHR = (_shr), .veff = (_veff), .vst = 0, .vct = 0, \
+		.hbin_ratio = (_hb), .vbin_ratio = (_vb), \
+		.horizontal_ob = (_hob), .vertical_ob = (_vob), \
+		.crop = CENTERED_RECTANGLE(imx283_active_area, (_w) * (_hb), (_h) * (_vb)), \
+		.experimental = false, \
+	}
+
+#define IMX283_CROPPED_1X1_MODE(_cw, _ch, _left, _top) \
+	{ \
+		.mode = IMX283_MODE_0, .bpp = 12, \
+		.width = (_cw) + 96, .height = (_ch) + 16, \
+		.min_HMAX = 887, .min_VMAX = 3793, \
+		.crop_min_VMAX = (_ch) + 16 + 129, \
+		.default_HMAX = 900, .default_VMAX = 4000, \
+		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
+		.hbin_ratio = 1, .vbin_ratio = 1, \
+		.horizontal_ob = 96, .vertical_ob = 16, \
+		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
+		.experimental = false, \
+	}
+
+/*
+ * REBUILD: had the same bug as IMX283_ASPECT_MODE() above, in a different
+ * form. It centred against a virtual box anchored at native (0,0) --
+ * (5472 - _w) / 2, (3648 - _h) / 2 -- and never added imx283_active_area's
+ * own origin, so every crop it produced sat 108 columns left and 40 rows
+ * above where it should have been. Fixed the same way, by deriving from
+ * imx283_active_area instead of a bare literal box.
+ *
+ * Unused by either mode table as of this rebuild: the standalone 2K/HD
+ * "cropped-in" family this macro used to serve (two extra fixed-width
+ * tiers of Mode 0) is superseded by the single, unified IMX283_MODE_0
+ * aspect-ratio family below -- one entry per ratio, per REBUILD.md section
+ * 7 ("drop redundant families"). Kept correct rather than deleted:
+ * IMX283_CROPPED_1X1_MODE() is still live, and a future caller of this
+ * wrapper deserves a right answer, not a re-inherited bug.
+ */
+#define IMX283_CROP_1X1(_w, _h) \
+	IMX283_CROPPED_1X1_MODE((_w), (_h), \
+		imx283_active_area.left + ((imx283_active_area.width  - (_w)) / 2), \
+		imx283_active_area.top  + ((imx283_active_area.height - (_h)) / 2))
+
+/*
+ * IMX283_MODE_1C's own native window (its 0x30 drive mode). Every ratio in
+ * the IMX283_MODE_1C aspect family is a centred crop of THIS window: the
+ * 0x30 readout addresses the array differently from mode 0, so its window
+ * is kept separate from imx283_active_area rather than reusing it directly.
+ * See the base IMX283_MODE_1C entry's comment in supported_modes_10bit[]
+ * for the .left measurement history, and the WINDOW_LEFT block below for
+ * which candidate is currently selected and why.
+ */
+/*
+ * IMX283_MODE_1C horizontal window origin -- TWO CANDIDATES, ONLY ONE EVER
+ * TESTED. See development/imx283-active-size/ROUND2.md, Defect C4.
+ *
+ * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): hardware-tested and known
+ * to stream a clean picture. Kept as the fallback -- see below.
+ *
+ * IMX283_MODE_1C_WINDOW_LEFT_CENTRED (924): the *correctly* centred value,
+ * i.e. imx283_active_area.left + (imx283_active_area.width - 3840) / 2
+ * = 108 + (5472 - 3840) / 2 = 924.
+ *
+ * ACTIVE CHOICE: CENTRED (924). This is now active and is UNTESTED ON
+ * HARDWARE -- nobody has streamed it. The earlier A/B that appeared to rule
+ * out centring this window tested 856, which is 40 + (5472 - 3840) / 2 --
+ * centred against the OLD SWAPPED active_area.left of 40, a value this
+ * branch chain corrected to 108. That result (a grey ramp and colour noise)
+ * does not transfer to 924, a different, never-tested value derived from
+ * the corrected origin.
+ *
+ * 236 remains available as IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED and is
+ * the value to fall back to if 924 streams a grey ramp or colour noise on
+ * real hardware. See ROUND2.md Defect C4 for the exact A/B recipe.
+ */
+#define IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED 236
+#define IMX283_MODE_1C_WINDOW_LEFT_CENTRED      924
+#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_CENTRED
+
+static const struct v4l2_rect imx283_mode_1c_window = {
+	/*
+	 * .left: see IMX283_MODE_1C_WINDOW_LEFT above -- currently 924
+	 * (CENTRED, untested on hardware), with 236 (HW_CONFIRMED) kept as
+	 * the fallback. Both candidates documented there.
+	 *
+	 * .top = 784 is NOT the hardware-confirmed half: it was 852, and 852
+	 * is what you get from
+	 *     active.top + (3648 - 2160) / 2
+	 * when active.top is 108 -- the SWAPPED value this branch corrected.
+	 * Against the real active.top of 40 the centred row is 784, so 852
+	 * framed this mode 68 rows low.
+	 *
+	 * That distinction matters more than it used to. The vertical-crop
+	 * gate in imx283_start_streaming() was widened from "Mode 0 only" to
+	 * `mode->veff && mode->vbin_ratio`, and MODE_1C satisfies both, so
+	 * .top now reaches VWINPOS instead of being metadata. It is a real
+	 * window position, and it was wrong for the same reason all 105
+	 * aspect rows were.
+	 */
+	.top = 784, .left = IMX283_MODE_1C_WINDOW_LEFT, .width = 3840, .height = 2160,
+};
+
+#define IMX283_ASPECT_MODE_1C(_w, _h) \
+	{ \
+		.mode = IMX283_MODE_1C, .bpp = 10, \
+		.width = (_w) + 96, .height = (_h) + 16, \
+		.min_HMAX = 544, .min_VMAX = 2200, .crop_min_VMAX = 0, \
+		.default_HMAX = 576, .default_VMAX = 2500, \
+		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
+		.hbin_ratio = 1, .vbin_ratio = 1, \
+		.horizontal_ob = 96, .vertical_ob = 16, \
+		.crop = CENTERED_RECTANGLE(imx283_mode_1c_window, (_w), (_h)), \
+		.experimental = false, \
+	}
+
 static const struct imx283_mode supported_modes_12bit[] = {
 	{
-		/* 5568x3664 21.40fps readout mode 0 */
+		/*
+		 * 5568x3664 Mode 0. min_VMAX 3793 is a timing value that back-solves
+		 * from 72e6 / (887 x 3793) ~= 21.40 fps in this table; it is not a
+		 * datasheet-authoritative vertical scan floor.
+		 */
 		.mode = IMX283_MODE_0,
 		.bpp = 12,
 		.width = 5472 + 96,
@@ -562,6 +871,19 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 2,
 		.horizontal_ob = 96/2,
 		.vertical_ob = 8/2,
+		/*
+		 * MEASURED, not derived: this entry's own 2784x1828 frame is
+		 * CINEPI_26-09-23_002603_F43 (development/imx283-active-size/
+		 * BRIEF.md). Unpacking that DNG's raw strip finds picture
+		 * only through column 2751 -- 2704 columns, not the 2736 that
+		 * width - horizontal_ob (2784 - 48) would claim. A second
+		 * frame at this same width/horizontal_ob/binning but a
+		 * narrower aspect crop (CINEPI_26-09-24_235655_F06, 2784x1098)
+		 * shows the identical cutoff. The 32 trailing columns are
+		 * constant in both and byte-identical between the two --
+		 * recordings a day apart cannot share real sensor data, so
+		 * that band is stale transport buffer, not picture.
+		 */
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
@@ -587,6 +909,14 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.vbin_ratio = 2,
 		.horizontal_ob = 48,
 		.vertical_ob = 4,
+		/*
+		 * Same 2x2-binned width/horizontal_ob as IMX283_MODE_2 above,
+		 * and the same measured shortfall: see that entry's comment
+		 * and development/imx283-active-size/BRIEF.md. Both DNGs used
+		 * to establish 2704 were captured at this width (2784) and
+		 * this horizontal_ob (48); the family, not the height, is
+		 * what the measurement is keyed on.
+		 */
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 	},
 	{
@@ -658,300 +988,114 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.experimental = true,
 	},
 	/*
-	 * Aspect-ratio family for Mode 0 (WP-283-6), replacing the eighteen ad-hoc
-	 * pixel-count crop entries this branch used to carry here: those were sizes,
-	 * not framings, and a driver already carrying the hardest table in this file
-	 * should not carry two families of it. Geometry is taken verbatim from
-	 * development/experimental-crop-modes/ASPECT-RATIOS.md's imx283 table, which
-	 * is the authority for these numbers -- do not recompute them here.
+	 * Aspect-ratio family for Mode 0 (WP-283-6).
 	 *
-	 * VMAX stays at the full-frame floor for every ratio (WP-283-3): there is no
-	 * mainline precedent or datasheet figure for a per-crop floor on this sensor,
-	 * and mainline's own binned modes carry a *higher* floor than the full frame,
-	 * so a shorter crop must not be assumed faster. Every entry below therefore
-	 * runs at the same ~21.40fps as full Mode 0; what a ratio buys is field of
-	 * view and a smaller file (MB/frame noted per entry, at 12-bit).
+	 * REBUILT (development/imx283-active-size/REBUILD.md), replacing THREE
+	 * previous, redundant families that all covered the same (bpp=12,
+	 * binning=1x1) corner: the hand-written 14-ratio crop family that used to
+	 * sit here, the IMX283_CROP_1X1()-based 2K and HD tiers further down, and
+	 * the small fixed-window "UHD zoom" family at the end of this table. All
+	 * three used a correct centred origin already for their OWN geometry, but
+	 * none of them is the *ratio* family REBUILD.md specifies, and carrying
+	 * three shapes of the same 13 ratios is exactly what section 7 ("drop
+	 * redundant families") rules out: one entry per (bpp, binning, ratio).
+	 *
+	 * Quantisation (REBUILD.md "The quantisation rule"): MODE_0 is 12-bit
+	 * 1x1 with no faster sibling, so every ratio uses the full active area.
+	 * The three ratios narrower than the sensor's own 5472:3648 (=1.5:1) shape
+	 * -- 1:1, 1.33:1, 1.37:1 -- keep the full 3648-row height and crop the
+	 * sides; the other ten keep the full 5472-column width and crop top
+	 * and bottom. Both directions round UP to the next multiple of 4 (the
+	 * 1x1 delivered step), which is what "prefer the larger frame" means once
+	 * a ratio does not land on an exact quantum. The base window width
+	 * (5472) is not itself a standard cinema size, so unlike IMX283_MODE_1C
+	 * below (whose window genuinely is 3840 = UHD), none of these thirteen
+	 * sizes lands on a standard number without shrinking the frame to get
+	 * there -- so no substitution applies in this family.
+	 *
+	 * crop_min_VMAX is per-row here, not constant like the other families
+	 * below: Mode 0 is the one mode with a real arbitrary-VWIDCUT vertical
+	 * crop (every other mode's vertical-crop path is Mode-0-only -- see the
+	 * comments on those families below and on IMX283_MODE_1C's base entry).
+	 * The formula, transport height + 129, is IMX283_CROPPED_1X1_MODE()'s own,
+	 * applied uniformly here (some of the rows this family replaces had
+	 * applied it inconsistently -- off by the 16-row vertical_ob on some rows
+	 * and not others).
 	 */
-	{
-		/* Mode 0, 12-bit 1x1, 1:1 crop -- 20.6 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 3648 + 96,
-		.height = 3648 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 3648, 3648),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 1.33:1 crop -- 27.3 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 4864 + 96,
-		.height = 3648 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 4864, 3648),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 1.37:1 crop -- 28.1 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5016 + 96,
-		.height = 3648 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5016, 3648),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 1.78:1 crop -- 25.9 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 3080 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3080),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 1.85:1 crop -- 24.8 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2956 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2956),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 1.89:1 crop -- 24.3 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2896 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2896),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 1.90:1 crop -- 24.2 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2880 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2880),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 2.00:1 crop -- 23.0 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2736 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2736),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 2.20:1 crop -- 20.9 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2488 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2488),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 2.22:1 crop -- 20.7 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2464 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2464),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 2.35:1 crop -- 19.6 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2328 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2328),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 2.39:1 crop -- 19.2 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2288 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2288),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 2.50:1 crop -- 18.4 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2188 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2188),
-	},
-	{
-		/* Mode 0, 12-bit 1x1, 2.55:1 crop -- 18.0 MB/frame */
-		.mode = IMX283_MODE_0,
-		.bpp = 12,
-		.width = 5472 + 96,
-		.height = 2144 + 16,
-		.min_HMAX = 887,
-		.min_VMAX = 3793,
-		.default_HMAX = 900,
-		.default_VMAX = 4000,
-		.min_SHR = 12,
-		.veff = 3694,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 1,
-		.vbin_ratio = 1,
-		.horizontal_ob = 96,
-		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 2144),
-	},
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3648, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 4864, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5016, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 3080, 887, 3793, 3221, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.78:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2956, 887, 3793, 3105, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2880, 887, 3793, 3025, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.90:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2736, 887, 3793, 2881, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.00:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2488, 887, 3793, 2633, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.20:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2464, 887, 3793, 2613, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2328, 887, 3793, 2477, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2288, 887, 3793, 2437, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.39:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2188, 887, 3793, 2337, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2144, 887, 3793, 2293, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.55:1 */
+	/*
+	 * IMX283_MODE_2 aspect-ratio family: the three TALL ratios (1:1, 1.33:1,
+	 * 1.37:1), on the taller/slower 2x2 parent. REBUILD.md section 7: the
+	 * faster IMX283_MODE_2A parent tops out at 3076 sensor rows, which costs
+	 * these three ratios 28.9% of frame area to reach -- too much to pay for
+	 * a speed these three shapes cannot use anyway, since a crop taller than
+	 * the fast parent's own window cannot be cropped INTO that window.
+	 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 1824, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2432, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.33:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2508, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.37:1 */
+	/*
+	 * IMX283_MODE_2A aspect-ratio family: the other ten (WIDE) ratios, on
+	 * the faster 2x2 parent -- measured cost of using it here is 0.0-0.1% of
+	 * frame area (REBUILD.md section 7), free for practical purposes.
+	 *
+	 * _w is 2736 on every row here: the full active width after 2x2
+	 * binning (5472 / 2), which the macro turns back into crop.width =
+	 * 5472 -- the whole active area.
+	 *
+	 * This briefly carried a 32-column correction to 2704, on two DNGs
+	 * that appeared to show the sensor delivering short. They were shot
+	 * with imx283_active_area's .left and .top swapped, which put
+	 * HTRIMMING_START 68 columns left of the active area; the readout ran
+	 * off the right-hand end and the transport padded the difference.
+	 * With the origin corrected the same mode delivers all 2736 columns
+	 * (measured 2026-09-26: optical black 0-47, picture 48-2783, no
+	 * constant-valued column anywhere). See imx283_active_width().
+	 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1540, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.78:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1478, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1440, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.90:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1368, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.00:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1244, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.20:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1232, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1164, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1144, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.39:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1094, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1072, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.55:1 */
+	/*
+	 * IMX283_MODE_3 aspect-ratio family: only parent for 12-bit 3x3, so all
+	 * thirteen ratios use it, against the full active area. Fact 2 measured
+	 * ZERO shortfall for 3x3 at the one window tested (5472 sensor columns,
+	 * 1824 delivered) -- a different, larger delivered width than every row
+	 * below, so none of this family's rows are in the measured class either;
+	 * no active_width override applies here, by design (GAP.md: do not
+	 * extrapolate the 2x2 finding to 3x3).
+	 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1216, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1620, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.33:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1672, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.37:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 1028, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.78:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 984, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 960, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.90:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 912, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.00:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 828, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.20:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 820, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 776, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 764, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.39:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 728, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 716, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.55:1 */
 };
 static const struct imx283_mode supported_modes_10bit[] = {
 	{
@@ -989,18 +1133,25 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.mode = IMX283_MODE_1A,
 		.bpp = 10,
 		.width = 5472 + 96,
-		.height = 3078 + 16,
+		.height = 3076 + 16,   /* matches the 3076 crop below */
 		.min_HMAX = 745,
 		.min_VMAX = 3203,
 		.default_HMAX = 750,
 		.default_VMAX = 3840,
 		.min_SHR = 12,
 		/*
-		 * Same all-pixel 1x1 scan as MODE_1 with the sensor's own
-		 * 16:9 vertical crop (mdsel3/mdsel4 carry the VCROP_EN bits),
-		 * so the array is scanned the same way and veff is unchanged;
-		 * what differs is how many of those lines come out. Same
-		 * reasoning as MODE_1 for why these five are spelled out.
+		 * CONFIRMED: this is the vendor-preset 16:9 VCROP path
+		 * (mdsel3/mdsel4 carry VCROP_EN). It therefore establishes that
+		 * a windowed readout can have a shorter VMAX.
+		 *
+		 * The shipped min_VMAX 3203 back-solves from the 29.97 fps target
+		 * in originating commit e6fc463:
+		 *     72e6 / (750 x 3203) ~= 29.97.
+		 * It is therefore not a datasheet-authoritative floor.
+		 *
+		 * UNKNOWN: that does not prove that an arbitrary driver-programmed
+		 * Mode-0 VWIDCUT window can use the same rule; that remains a hardware
+		 * measurement question.
 		 */
 		.veff = 3694,
 		.vst = 0,
@@ -1009,13 +1160,24 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3078),
+		/*
+		 * 3076, not the readout's nominal 3078. A window height that is
+		 * not a multiple of 4 gives an ODD centred top -- 40 + (3648 -
+		 * 3078)/2 = 325 -- which starts the readout one row into the
+		 * CFA and inverts the Bayer phase against the SRGGB the driver
+		 * advertises. 3076 centres on 326 and costs two rows.
+		 * IMX283_MODE_6 already uses 3076 for the same shape.
+		 */
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 	},
 	{
 		/*
 		 * Readout mode 1S: 3000x3000 square 10-bit readout.
-		 * Sony specifies 42.96 fps. Timing is derived from the
-		 * documented maximum frame rate and must be hardware-validated.
+		 * PROBABLE/UNSOURCED: min_VMAX 2235 cannot be reconciled with the
+		 * advertised 3016-line transport frame; it would make the VBLANK
+		 * floor negative. The value could not be traced to a source commit
+		 * or datasheet figure, so it must not be used as evidence for the
+		 * HMAX/VMAX transport model until measured or otherwise sourced.
 		 */
 		.mode = IMX283_MODE_1S,
 		.bpp = 10,
@@ -1068,6 +1230,27 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.vbin_ratio = 2,
 		.horizontal_ob = 48,
 		.vertical_ob = 4,
+		/*
+		 * .active_width deliberately left at 0 (naive width -
+		 * horizontal_ob fallback, 2736). An earlier version of this
+		 * comment set it to 2704 "by family resemblance" to
+		 * IMX283_MODE_2/MODE_2A -- wrong: no MODE_6 DNG exists (this
+		 * entry is .experimental and has never run on hardware, see
+		 * the comment above), and the resemblance itself does not
+		 * hold up. Both measured frames (development/
+		 * imx283-active-size/BRIEF.md) are 12-bit; this mode is
+		 * 10-bit. And MODE_2/MODE_2A's readout-mode comment is
+		 * "Horizontal / Vertical 2/2-line binning" (mdsel
+		 * {0x0d,0x11,0x50,0x00} / {0x0d,0x11,0x70,0x50}) while this
+		 * mode's is "Vertical 2 binning horizontal 2/4, subsampling"
+		 * (mdsel {0x18,0x21,0x00,0x09}) -- a different horizontal
+		 * readout mechanism, not the plain 2-line bin the measurement
+		 * was taken on -- which is why no active-width override was ever
+		 * applied to this entry. (The override that briefly existed for
+		 * the 12-bit 2x2 class has since been removed outright: the
+		 * shortfall it corrected was an artefact of a swapped
+		 * active-area origin, not a property of the readout.)
+		 */
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 		.experimental = true,
 	},
@@ -1142,12 +1325,12 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 *    the vertical window is whatever drive mode 0x30 hardwires.
 		 *    Nothing in this driver can tell us where that is.
 		 *  - .crop.left is NOT metadata: it is written as
-		 *    HTRIMMING_START for every mode. Centring therefore moves
-		 *    the real horizontal window from native column 236 to 856,
-		 *    i.e. 620 px to the right -- a visible reframing of this
-		 *    mode, and the fix for it if 236 was ever honoured.
+		 *    HTRIMMING_START for every mode. Moving it is therefore a
+		 *    real, visible reframing of this mode, not bookkeeping.
 		 *
-		 * .left = 236 is HARDWARE-CONFIRMED. Do not centre it.
+		 * .left = 236 is HARDWARE-CONFIRMED: it is known to stream a
+		 * clean picture, and is kept as the fallback if the currently
+		 * active value (see below) fails on hardware.
 		 *
 		 * The two coordinates are not the same kind of thing:
 		 *
@@ -1169,25 +1352,116 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 * a window running off the end of what drive mode 0x30
 		 * actually reads. At 236 it is a clean picture.
 		 *
-		 * So 95183c8's claim was right even though it showed no
-		 * working: 0x30 DOES address the array differently from the
-		 * all-pixel modes, and 236 is where its window starts. The
-		 * defect was only ever .top, which named a row inside the
-		 * optical black.
-		 *
-		 * The consequence is that this mode's crop is genuinely
-		 * off-centre horizontally, and the settings page draws its
-		 * crop box left of centre because that is the truth. Changing
-		 * the picture to match the diagram is not available: the
-		 * hardware decides where this window is.
+		 * That A/B's conclusion does NOT rule out centring in general:
+		 * 856 = 40 + (5472 - 3840) / 2 is centred against the SWAPPED
+		 * active_area.left of 40 that this branch chain corrected to
+		 * 108, not against the real active area. The correctly centred
+		 * value against the corrected origin is 924 = 108 +
+		 * (5472 - 3840) / 2, a different number that was never tested
+		 * by that A/B. See IMX283_MODE_1C_WINDOW_LEFT above (and
+		 * ROUND2.md Defect C4): this branch now selects 924, UNTESTED
+		 * ON HARDWARE, with 236 kept here as the evidence for the
+		 * fallback if 924 turns out to fail the same way 856 did.
 		 */
 		.crop = {
-			.left   = 236,
-			.top    = 852,
+			/*
+			 * .top was 852 = active.top + (3648-2160)/2 with the
+			 * SWAPPED active.top of 108. Against the real 40 the
+			 * centred row is 784, so 852 framed this mode 68 rows
+			 * low. .left is IMX283_MODE_1C_WINDOW_LEFT (defined next to
+			 * imx283_mode_1c_window above, with both candidates
+			 * documented -- 236 hardware-confirmed, 924 untested -- and
+			 * which one is active). This MUST agree with
+			 * imx283_mode_1c_window: the aspect family is centred on
+			 * that rect.
+			 */
+			.left   = IMX283_MODE_1C_WINDOW_LEFT,
+			.top    = 784,
 			.width  = 3840,
 			.height = 2160,
 		},
 	},
+	/*
+	 * IMX283_MODE_1 aspect-ratio family: the three TALL ratios (1:1, 1.33:1,
+	 * 1.37:1), on the taller/slower 10-bit 1x1 parent -- same reasoning as
+	 * IMX283_MODE_2 above: the faster IMX283_MODE_1A parent tops out at 3078
+	 * sensor rows, a 28.9%-of-frame-area cost these three ratios cannot avoid
+	 * since they need more rows than IMX283_MODE_1A's own window has.
+	 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 3648, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 4864, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 5016, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
+	/*
+	 * IMX283_MODE_1A aspect-ratio family: the other ten (WIDE) ratios, on
+	 * the faster parent -- 0.0-0.1% frame-area cost (REBUILD.md section 7).
+	 * 1x1 has never shown a shortfall at any measured window (GAP.md), so
+	 * unlike IMX283_MODE_2A's 2x2 family there is no true-vs-nominal split
+	 * here: _w is 5472 both structurally and for the ratio math.
+	 */
+	/*
+	 * 1.78:1 is NOT emitted here. Correcting the base IMX283_MODE_1A
+	 * entry's window to 3076 (its 3078 gave an ODD centred top of 325)
+	 * made that entry exactly 5568x3092 on a 5472x3076 crop -- which is
+	 * what this row would generate, to the pixel. A duplicate (bpp,
+	 * width, height) is unreachable: v4l2_find_nearest_size() returns
+	 * the first exact match, so the second is dead code. The base entry
+	 * serves this ratio. Same reasoning as MODE_1C's 1.78:1 below.
+	 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2956, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2880, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.90:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2736, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.00:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2488, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.20:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2464, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2328, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2288, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.39:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2188, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2144, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.55:1 */
+	/*
+	 * IMX283_MODE_1C aspect-ratio family (10-bit UHD-window family, the
+	 * spec's "10-bit UHD, 1x1 only" -- no 12-bit UHD-window family exists,
+	 * per the operator's ruling in REBUILD.md "Families to emit").
+	 *
+	 * Every ratio here is IMX283_ASPECT_MODE_1C(), which crops from
+	 * imx283_mode_1c_window (see its own comment above), not from
+	 * imx283_active_area directly: the 0x30 readout addresses the array
+	 * differently from mode 0, and centring this window's HTRIMMING_START
+	 * against the wrong origin (native column 40, the SWAPPED
+	 * active_area.left this branch corrected) streamed a grey ramp and
+	 * colour noise instead of a picture (see the base IMX283_MODE_1C entry
+	 * above for the measurement). IMX283_MODE_1C_WINDOW_LEFT currently
+	 * selects the CENTRED candidate (924, against the corrected origin),
+	 * which is UNTESTED ON HARDWARE; see that macro's comment for the
+	 * HW_CONFIRMED (236) fallback.
+	 *
+	 * Fourteen ratios, one parent: the three TALL ratios (1:1, 1.33:1,
+	 * 1.37:1) keep the window's full 2160-row height and crop its sides; the
+	 * other ten keep the full 3840-column width and crop top/bottom. The
+	 * 1.78:1 row is DELIBERATELY ABSENT: at this window's own native shape
+	 * (3840x2160 = 16:9 = 1.7778), quantising 1.78:1 lands on exactly
+	 * 3840x2160 -- the same crop.left/.top/.width/.height as the base
+	 * IMX283_MODE_1C entry already above, an identical (bpp, transport w,
+	 * transport h) duplicate that v4l2_find_nearest_size could never reach
+	 * (Fact 4). The base entry already covers this ratio; a second, later,
+	 * byte-for-byte-identical row would only be dead code.
+	 *
+	 * Unlike every other family in this file, several of these DO land on
+	 * exact standard cinema numbers at no area cost, because the window
+	 * itself is anchored to the sensor's native UHD readout: 2.00:1 is
+	 * 3840x1920, 2.50:1 is 3840x1536, and (via the base entry) 1.78:1 is the
+	 * full 3840x2160 UHD frame.
+	 */
+	IMX283_ASPECT_MODE_1C(2160, 2160), /* 1:1 */
+	IMX283_ASPECT_MODE_1C(2880, 2160), /* 1.33:1 */
+	IMX283_ASPECT_MODE_1C(2972, 2160), /* 1.37:1 */
+	IMX283_ASPECT_MODE_1C(3840, 2076), /* 1.85:1 */
+	IMX283_ASPECT_MODE_1C(3840, 2020), /* 1.90:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1920), /* 2.00:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1744), /* 2.20:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1728), /* 2.22:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1636), /* 2.35:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1608), /* 2.39:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1536), /* 2.50:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1504), /* 2.55:1 */
 };
 
 /*
@@ -1275,6 +1549,8 @@ struct imx283 {
 	struct v4l2_ctrl *mode_crop_height_ctrl;
 	struct v4l2_ctrl *mode_active_left_ctrl;
 	struct v4l2_ctrl *mode_active_top_ctrl;
+	struct v4l2_ctrl *mode_active_width_ctrl;
+	struct v4l2_ctrl *mode_active_height_ctrl;
 
 	/* Current mode */
 	const struct imx283_mode *mode;
@@ -1470,6 +1746,43 @@ static void imx283_check_mode_table(struct device *dev, const char *name,
 				 modes[i].hbin_ratio, modes[i].vbin_ratio);
 
 		/*
+		 * REBUILD.md "done" item 2: the crop origin must be even, or
+		 * the Bayer phase is not guaranteed. imx283_active_area and
+		 * imx283_mode_1c_window are both built so that a CENTERED_
+		 * RECTANGLE() derived from them lands even automatically
+		 * whenever the crop size is a multiple of 4 -- this check is
+		 * the trip-wire for the day a hand-written .crop literal (or
+		 * a new reference rectangle) breaks that invariant.
+		 */
+		if ((crop->left & 1) || (crop->top & 1))
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): crop origin (%d,%d) is not even -- Bayer phase is not guaranteed\n",
+				 name, i, modes[i].width, modes[i].height,
+				 modes[i].mode, crop->left, crop->top);
+
+		/*
+		 * REBUILD.md "done" item 5: the sensor window must be an
+		 * exact multiple of its own binning ratio in BOTH directions.
+		 * This is a plain divisibility check, deliberately weaker
+		 * than the horizontal output_width*hbin_ratio==crop.width
+		 * check below (which additionally asserts the OUTPUT size
+		 * matches, not just that the window divides evenly) --
+		 * IMX283_MODE_4/_5's vbin_ratio of 1 divides everything, so
+		 * this does not reintroduce the subsampling-vs-binning
+		 * ambiguity documented on that check.
+		 */
+		if (modes[i].hbin_ratio && crop->width % modes[i].hbin_ratio)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): crop width %u is not a multiple of hbin_ratio %u\n",
+				 name, i, modes[i].width, modes[i].height,
+				 modes[i].mode, crop->width, modes[i].hbin_ratio);
+		if (modes[i].vbin_ratio && crop->height % modes[i].vbin_ratio)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): crop height %u is not a multiple of vbin_ratio %u\n",
+				 name, i, modes[i].width, modes[i].height,
+				 modes[i].mode, crop->height, modes[i].vbin_ratio);
+
+				/*
 		 * The crop must be the window the transport frame came out
 		 * of: active output columns times the horizontal binning
 		 * ratio. Containment above is not enough -- it passes any
@@ -1489,16 +1802,63 @@ static void imx283_check_mode_table(struct device *dev, const char *name,
 		 * adding the vertical test, or it will fire on two entries
 		 * that are correct.
 		 */
-		if (modes[i].hbin_ratio &&
-		    (modes[i].width - modes[i].horizontal_ob) * modes[i].hbin_ratio
-		    != crop->width)
+		if (modes[i].hbin_ratio) {
+			struct v4l2_rect output_crop = imx283_output_crop(&modes[i]);
+			unsigned int output_width = imx283_output_width(&modes[i]);
+			if (output_width * modes[i].hbin_ratio != output_crop.width)
+				dev_warn(dev,
+					 "%s[%u] (%ux%u, readout-mode enum %u): active crop width %u does not match %u output x %u binning = %u\n",
+					 name, i, modes[i].width, modes[i].height, modes[i].mode,
+					 output_crop.width, output_width, modes[i].hbin_ratio,
+					 output_width * modes[i].hbin_ratio);
+		}
+
+		/*
+		 * The delivered-picture-size controls ("Mode Active Width"/
+		 * "Mode Active Height", see development/imx283-active-size/
+		 * BRIEF.md) must describe pixels that actually fit inside the
+		 * frame this entry transports. These fields are u32, so an
+		 * underflowing "negative" size (e.g. an .active_width left at
+		 * 0 on an entry whose horizontal_ob exceeds .width, or a bad
+		 * override) wraps around to a huge value rather than going
+		 * below zero -- caught here by the same "larger than the
+		 * transport frame" comparison, not by a separate sign check.
+		 */
+		if (!imx283_active_width(&modes[i]) ||
+		    imx283_active_width(&modes[i]) > modes[i].width)
 			dev_warn(dev,
-				 "%s[%u] (%ux%u, readout-mode enum %u): crop width %u does not match (%u active out - %u ob) x %u binning = %u\n",
+				 "%s[%u] (%ux%u, readout-mode enum %u): active width %u is zero or exceeds the %u-column transport frame\n",
+				 name, i, modes[i].width, modes[i].height, modes[i].mode,
+				 imx283_active_width(&modes[i]), modes[i].width);
+
+		if (!imx283_active_height(&modes[i]) ||
+		    imx283_active_height(&modes[i]) > modes[i].height)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): active height %u is zero or exceeds the %u-row transport frame\n",
+				 name, i, modes[i].width, modes[i].height, modes[i].mode,
+				 imx283_active_height(&modes[i]), modes[i].height);
+
+		/*
+		 * The active size must be the fallback (width - horizontal_ob,
+		 * height - vertical_ob) unless an entry deliberately overrides
+		 * it. An override is how a mode says "I deliver less than the
+		 * arithmetic suggests", and it must be backed by a measurement
+		 * on that mode -- there is exactly one way to get this wrong and
+		 * it already happened once: a 32-column subtraction was applied
+		 * to the full-width 2x2 class on the strength of two DNGs that
+		 * turned out to have been shot with the active-area origin
+		 * swapped. Correcting the origin made the shortfall vanish. If
+		 * you are about to add an override, shoot the mode first.
+		 */
+		if (imx283_active_width(&modes[i]) !=
+		    modes[i].width - modes[i].horizontal_ob ||
+		    imx283_active_height(&modes[i]) !=
+		    modes[i].height - modes[i].vertical_ob)
+			dev_warn(dev,
+				 "%s[%u] (%ux%u, readout-mode enum %u): active size %ux%u overrides the fallback; it must be backed by a measurement on THIS mode\n",
 				 name, i, modes[i].width, modes[i].height,
-				 modes[i].mode, crop->width, modes[i].width,
-				 modes[i].horizontal_ob, modes[i].hbin_ratio,
-				 (modes[i].width - modes[i].horizontal_ob)
-				 * modes[i].hbin_ratio);
+				 modes[i].mode, imx283_active_width(&modes[i]),
+				 imx283_active_height(&modes[i]));
 	}
 }
 
@@ -1581,15 +1941,15 @@ static int imx283_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	mutex_lock(&imx283->mutex);
 
 	/* Initialize try_fmt for the image pad */
-	try_fmt_img->width = supported_modes_12bit[0].width;
-	try_fmt_img->height = supported_modes_12bit[0].height;
+	try_fmt_img->width = imx283_output_width(&supported_modes_12bit[0]);
+	try_fmt_img->height = imx283_output_height(&supported_modes_12bit[0]);
 	try_fmt_img->code = imx283_get_format_code(imx283,
 						   MEDIA_BUS_FMT_SRGGB12_1X12);
 	try_fmt_img->field = V4L2_FIELD_NONE;
 
 	/* Initialize try_crop to the selected default mode's active area. */
 	try_crop = v4l2_subdev_state_get_crop(fh->state, IMAGE_PAD);
-	*try_crop = imx283->mode->crop;
+	*try_crop = imx283_output_crop(imx283->mode);
 
 	mutex_unlock(&imx283->mutex);
 
@@ -1692,7 +2052,7 @@ static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 	if (ctrl->id == V4L2_CID_VBLANK){
 		/* Honour the VBLANK limits when setting exposure. */
 		u64 current_exposure, max_exposure, min_exposure, vmax;
-		vmax = ((u64)mode->height + ctrl->val) ;
+		vmax = ((u64)imx283_output_height(mode) + ctrl->val) ;
 		imx283->vmax = vmax;
 
 		calculate_min_max_v4l2_cid_exposure(imx283->hmax, imx283->vmax,
@@ -1731,9 +2091,9 @@ static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 		{
 		dev_info(imx283->dev, "V4L2_CID_HBLANK : %d\n", ctrl->val);
 		//int hmax = (IMX283_NATIVE_WIDTH + ctrl->val) * 72000000; / IMX283_PIXEL_RATE;
-		pixel_rate = (u64)mode->width * 72000000;
+		pixel_rate = (u64)imx283_output_width(mode) * 72000000;
 		do_div(pixel_rate, mode->min_HMAX);
-		hmax = (u64)(mode->width + ctrl->val) * 72000000;
+		hmax = (u64)(imx283_output_width(mode) + ctrl->val) * 72000000;
 		do_div(hmax, pixel_rate);
 		imx283->hmax = hmax;
 		dev_info(imx283->dev, "\tHMAX : %d\n", imx283->hmax);
@@ -1744,7 +2104,7 @@ static int imx283_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_VBLANK:
 		{
 		dev_info(imx283->dev,"V4L2_CID_VBLANK : %d\n",ctrl->val);
-		imx283->vmax = ((u64)mode->height + ctrl->val);
+		imx283->vmax = ((u64)imx283_output_height(mode) + ctrl->val);
 		dev_info(imx283->dev, "\tVMAX : %d\n", imx283->vmax);
 		ret = cci_write(imx283, IMX283_REG_VMAX, imx283->vmax, NULL);
 		}
@@ -1849,6 +2209,28 @@ static const struct v4l2_ctrl_config imx283_cfg_mode_active_top = {
 	.min = 0, .max = 3664, .step = 1, .def = 0,
 };
 
+/*
+ * The picture size delivered inside the transport frame (see the
+ * V4L2_CID_IMX283_MODE_ACTIVE_WIDTH/HEIGHT comment for why this cannot be
+ * left for a consumer to derive from Active Left/Top and the frame size).
+ * Published from imx283_active_width()/imx283_active_height(), which is
+ * also what imx283_check_mode_table() below checks.
+ *
+ * .min = 1 rather than 0: an active size of zero is not a smaller picture,
+ * it is a broken mode entry, and a control value of zero should not look
+ * like a valid reading to whatever downstream reads it.
+ */
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_width = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_WIDTH,
+	.name = "Mode Active Width", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 1, .max = 5568, .step = 1, .def = 5472,
+};
+static const struct v4l2_ctrl_config imx283_cfg_mode_active_height = {
+	.ops = &imx283_ctrl_ops, .id = V4L2_CID_IMX283_MODE_ACTIVE_HEIGHT,
+	.name = "Mode Active Height", .type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 1, .max = 3664, .step = 1, .def = 3648,
+};
+
 static int imx283_enum_mbus_code(struct v4l2_subdev *sd,
 				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_mbus_code_enum *code)
@@ -1880,14 +2262,13 @@ static int imx283_enum_frame_size(struct v4l2_subdev *sd,
 	if (fse->code != imx283_get_format_code(imx283, fse->code))
 		return -EINVAL;
 
-	fse->min_width = mode_list[fse->index].width;
+	fse->min_width = imx283_output_width(&mode_list[fse->index]);
 	fse->max_width = fse->min_width;
-	fse->min_height = mode_list[fse->index].height;
+	fse->min_height = imx283_output_height(&mode_list[fse->index]);
 	fse->max_height = fse->min_height;
 
 	return 0;
 }
-
 static void imx283_reset_colorspace(struct v4l2_mbus_framefmt *fmt)
 {
 	fmt->colorspace = V4L2_COLORSPACE_RAW;
@@ -1902,8 +2283,8 @@ static void imx283_update_image_pad_format(struct imx283 *imx283,
 					   const struct imx283_mode *mode,
 					   struct v4l2_subdev_format *fmt)
 {
-	fmt->format.width = mode->width;
-	fmt->format.height = mode->height;
+	fmt->format.width = imx283_output_width(mode);
+	fmt->format.height = imx283_output_height(mode);
 	fmt->format.field = V4L2_FIELD_NONE;
 	imx283_reset_colorspace(&fmt->format);
 }
@@ -1936,8 +2317,7 @@ static int imx283_get_pad_format(struct v4l2_subdev *sd,
  * Report the active mode's real binning and sensor crop through the
  * read-only "Mode Binning" / "Mode Crop *" controls (WP-283-5, DEC-4).
  * mode->crop is already in native sensor-pixel coordinates (see the
- * imx283_mode field comment and CENTERED_RECTANGLE), so it is reported
- * as-is. hbin_ratio and vbin_ratio differ on a few entries (the 3x1
+ * imx283_mode field comment and CENTERED_RECTANGLE), so it is reported * as-is. hbin_ratio and vbin_ratio differ on a few entries (the 3x1
  * horizontal-only-binning modes); DEC-4 says report the horizontal ratio
  * in that case, which is what "Mode Binning" always does here.
  */
@@ -1945,18 +2325,42 @@ static void imx283_update_mode_metadata(struct imx283 *imx283,
 					 const struct imx283_mode *mode)
 {
 	__v4l2_ctrl_s_ctrl(imx283->mode_binning_ctrl, mode->hbin_ratio);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_left_ctrl, mode->crop.left);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_top_ctrl, mode->crop.top);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_width_ctrl, mode->crop.width);
-	__v4l2_ctrl_s_ctrl(imx283->mode_crop_height_ctrl, mode->crop.height);
+	{
+		struct v4l2_rect output_crop = imx283_output_crop(mode);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_left_ctrl, output_crop.left);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_top_ctrl, output_crop.top);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_width_ctrl, output_crop.width);
+		__v4l2_ctrl_s_ctrl(imx283->mode_crop_height_ctrl, output_crop.height);
+	}
 	/*
 	 * Frame coordinates, not sensor coordinates. horizontal_ob/vertical_ob
-	 * are already expressed in this mode's own output pixels (the tables
-	 * divide them by the binning ratio where it applies), so they need no
-	 * scaling here.
+	 * are expressed in the mode's transport pixels, so they need no scaling.
+	 * VOB is trailing rather than a top offset, hence active-top is zero.
 	 */
-	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl, mode->horizontal_ob);
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_left_ctrl,
+					mode->horizontal_ob);
 	__v4l2_ctrl_s_ctrl(imx283->mode_active_top_ctrl, 0);
+	/*
+	 * NOT width - horizontal_ob / height - vertical_ob inline here: that
+	 * arithmetic is exactly the bug this pair of controls exists to fix
+	 * on the measured full-width 2x2-binned class (see
+	 * imx283_active_width()/imx283_active_height() and
+	 * development/imx283-active-size/BRIEF.md). Going through those two
+	 * functions is what lets every entry in that class -- base struct
+	 * literal or IMX283_ASPECT_MODE() row alike -- get the correction
+	 * while every other mode keeps today's behaviour.
+	 */
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_width_ctrl,
+					imx283_active_width(mode));
+	__v4l2_ctrl_s_ctrl(imx283->mode_active_height_ctrl,
+					imx283_active_height(mode));
+}
+
+static u64 imx283_min_vmax(const struct imx283_mode *mode)
+{
+	if (crop_vmax && mode->crop_min_VMAX)
+		return mode->crop_min_VMAX;
+	return mode->min_VMAX;
 }
 
 static void imx283_set_framing_limits(struct imx283 *imx283)
@@ -1970,7 +2374,7 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	imx283->vmax = mode->default_VMAX;
 	imx283->hmax = mode->default_HMAX;
 
-	pixel_rate = (u64)mode->width * 72000000;
+	pixel_rate = (u64)imx283_output_width(mode) * 72000000;
 	do_div(pixel_rate,mode->min_HMAX);
 	dev_info(imx283->dev,"Pixel Rate : %lld\n",pixel_rate);
 
@@ -1978,22 +2382,24 @@ static void imx283_set_framing_limits(struct imx283 *imx283)
 	//int def_hblank = mode->default_HMAX * IMX283_PIXEL_RATE / 72000000 - IMX283_NATIVE_WIDTH;
 	def_hblank = mode->default_HMAX * pixel_rate;
 	do_div(def_hblank, 72000000);
-	def_hblank = def_hblank - mode->width;
+	def_hblank = def_hblank - imx283_output_width(mode);
 	__v4l2_ctrl_modify_range(imx283->hblank, 0,
 				 IMX283_HMAX_MAX, 1, def_hblank);
 	__v4l2_ctrl_s_ctrl(imx283->hblank, def_hblank);
 
 	/* Update limits and set FPS to default */
-	__v4l2_ctrl_modify_range(imx283->vblank, mode->min_VMAX - mode->height,
-				 IMX283_VMAX_MAX - mode->height,
-				 1, mode->default_VMAX - mode->height);
-	__v4l2_ctrl_s_ctrl(imx283->vblank, mode->default_VMAX - mode->height);
+	__v4l2_ctrl_modify_range(imx283->vblank,
+				 imx283_min_vmax(mode) - imx283_output_height(mode),
+				 IMX283_VMAX_MAX - imx283_output_height(mode),
+				 1, mode->default_VMAX - imx283_output_height(mode));
+	__v4l2_ctrl_s_ctrl(imx283->vblank,
+			   mode->default_VMAX - imx283_output_height(mode));
 
 	/* Setting this will adjust the exposure limits as well. */
 
 	__v4l2_ctrl_modify_range(imx283->pixel_rate, pixel_rate, pixel_rate, 1, pixel_rate);
 
-	dev_info(imx283->dev,"Setting default HBLANK : %lld, VBLANK : %lld with PixelRate: %lld\n",def_hblank,mode->default_VMAX - mode->height, pixel_rate);
+	dev_info(imx283->dev,"Setting default HBLANK : %lld, VBLANK : %lld with PixelRate: %lld\n",def_hblank,mode->default_VMAX - imx283_output_height(mode), pixel_rate);
 
 }
 /* TODO */
@@ -2015,11 +2421,9 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 
 	get_mode_table(fmt->format.code, &mode_list, &num_modes);
 
-	mode = v4l2_find_nearest_size(mode_list,
-					num_modes,
-					width, height,
-					fmt->format.width,
-					fmt->format.height);
+	mode = imx283_find_nearest_mode(mode_list, num_modes,
+				       fmt->format.width,
+				       fmt->format.height);
 	imx283_update_image_pad_format(imx283, mode, fmt);
 
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
@@ -2031,10 +2435,9 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 		 * Keep the TRY crop in step with the TRY format, so a caller
 		 * that probes a mode and then reads its crop back sees the
 		 * pair that belongs together. The two deliberately differ in
-		 * size: mode->width/height include the optical-black margin
-		 * that the sensor actually streams, while mode->crop is the
-		 * active rectangle alone, in native pixel-array coordinates,
-		 * which is what libcamera wants from V4L2_SEL_TGT_CROP.
+		 * size: the static mode table retains the optical-black transport margins;
+		 * the driver now emits an active-only frame, so the TRY crop is the
+		 * effective sensor window actually delivered to V4L2.
 		 *
 		 * Only the TRY state is touched. This driver still uses the
 		 * legacy subdev state model -- internal_ops.open seeds the
@@ -2047,7 +2450,7 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 		 * needs no store: imx283_get_selection() answers it straight
 		 * from imx283->mode->crop, see __imx283_get_pad_crop().
 		 */
-		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = mode->crop;
+		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = imx283_output_crop(mode);
 	} else if (imx283->mode != mode) {
 		imx283->mode = mode;
 		imx283->fmt_code = fmt->format.code;
@@ -2067,8 +2470,11 @@ __imx283_get_pad_crop(struct imx283 *imx283,
 	switch (which) {
 	case V4L2_SUBDEV_FORMAT_TRY:
 		return v4l2_subdev_state_get_crop(sd_state, pad);
-	case V4L2_SUBDEV_FORMAT_ACTIVE:
-		return &imx283->mode->crop;
+	case V4L2_SUBDEV_FORMAT_ACTIVE: {
+		static struct v4l2_rect output_crop;
+		output_crop = imx283_output_crop(imx283->mode);
+		return &output_crop;
+	}
 	}
 
 	return NULL;
@@ -2155,31 +2561,16 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		mode->crop.width,
 		mode->crop.height);
 
-	if (mode->mode == IMX283_MODE_0) {
+	if (mode->veff && mode->vbin_ratio) {
 		/*
-		 * Mode 0 is the 12-bit 1x1 readout. This branch enables the
-		 * sensor's arbitrary vertical-crop path for the fixed crop
-		 * variants in supported_modes_12bit[].
-		 *
-		 * WP-283-3 checked this against mainline
-		 * (raspberrypi/linux rpi-6.12.y drivers/media/i2c/imx283.c):
-		 * mainline enables VCROP_EN for every mode, this fork only
-		 * for Mode 0. Kept as Mode-0-only: veff is unset (0) on
-		 * IMX283_MODE_1S/_4/_5/_6 (intentionally experimental, see
-		 * EXPERIMENTAL_CROPS.md), so enabling VCROP_EN there today
-		 * would read a zero veff and drive VWIDCUT negative. Widen
-		 * this gate only alongside a veff audit of those modes.
-		 *
-		 * That list of four is exact as of the geometry-field audit
-		 * that gave MODE_1/_1A/_2 their missing veff: before it,
-		 * three non-experimental modes were silently in the same
-		 * state and this comment did not know it.
+		 * Apply the sensor VCROP mechanism to modes with validated
+		 * vertical-crop geometry. Experimental modes without veff remain
+		 * on the legacy path.
 		 */
 		cci_write(imx283, IMX283_REG_MDSEL3,
 			  readout->mdsel3 | IMX283_MDSEL3_VCROP_EN, &ret);
 		cci_write(imx283, IMX283_REG_MDSEL4,
 			  readout->mdsel4 | IMX283_MDSEL4_VCROP_EN, &ret);
-
 		{
 			u32 y_out_size = mode->crop.height / mode->vbin_ratio;
 			u32 write_v_size = y_out_size + mode->vertical_ob;
@@ -2196,13 +2587,13 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			cci_write(imx283, IMX283_REG_VWIDCUT, v_widcut, &ret);
 			cci_write(imx283, IMX283_REG_VWINPOS, v_pos, &ret);
 		}
-
 		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 	} else {
 		/* Preserve the existing timing/crop programming for other modes. */
 		cci_write(imx283, IMX283_REG_Y_OUT_SIZE,
-			  mode->height - mode->vertical_ob, &ret);
-		cci_write(imx283, IMX283_REG_WRITE_VSIZE, mode->height, &ret);
+			  mode->crop.height / mode->vbin_ratio, &ret);
+		cci_write(imx283, IMX283_REG_WRITE_VSIZE,
+			  mode->crop.height / mode->vbin_ratio + mode->vertical_ob, &ret);
 		cci_write(imx283, IMX283_REG_OB_SIZE_V, mode->vertical_ob, &ret);
 	}
 
@@ -2210,17 +2601,19 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	 * Configure horizontal cropping.
 	 *
 	 * WP-283-3: mainline writes HTRIMMING_END = crop.left + crop.width;
-	 * this fork has always written + 1. This runs for every mode, not
-	 * only the Mode-0 crops, so it is left unchanged pending the G8 Pi
-	 * gate (chart take, checked for correct centring and no wrap)
-	 * rather than changed without a hardware read-back or datasheet
-	 * copy of the register's exact start/end semantics.
+	 * use the exclusive end coordinate used by the upstream IMX283
+	 * driver. The previous +1 extended the horizontal trimming window by
+	 * one sensor column and could expose a spurious right-edge column.
 	 */
 	cci_write(imx283, IMX283_REG_HTRIMMING,
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
-	cci_write(imx283, IMX283_REG_HTRIMMING_START, mode->crop.left, &ret);
-	cci_write(imx283, IMX283_REG_HTRIMMING_END,
-		  mode->crop.left + mode->crop.width + 1, &ret);
+	{
+		struct v4l2_rect output_crop = imx283_output_crop(mode);
+		cci_write(imx283, IMX283_REG_HTRIMMING_START,
+			  output_crop.left, &ret);
+		cci_write(imx283, IMX283_REG_HTRIMMING_END,
+			  output_crop.left + output_crop.width, &ret);
+	}
 
 	/* Todo: These must be calculated based on the link-freq and mode */
 	cci_write(imx283, IMX283_REG_HMAX, mode->default_HMAX, &ret);
@@ -2431,7 +2824,11 @@ static int imx283_get_selection(struct v4l2_subdev *sd,
 
 		return 0;
 
-	case V4L2_SEL_TGT_CROP_DEFAULT:
+	case V4L2_SEL_TGT_CROP_DEFAULT: {
+		struct imx283 *imx283 = to_imx283(sd);
+		sel->r = imx283_output_crop(imx283->mode);
+		return 0;
+	}
 	case V4L2_SEL_TGT_CROP_BOUNDS:
 		sel->r = imx283_active_area;
 
@@ -2551,13 +2948,23 @@ static int imx283_init_controls(struct imx283 *imx283)
 		imx283->mode_active_left_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	if (imx283->mode_active_top_ctrl)
 		imx283->mode_active_top_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	imx283->mode_active_width_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							      &imx283_cfg_mode_active_width,
+							      NULL);
+	imx283->mode_active_height_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
+							       &imx283_cfg_mode_active_height,
+							       NULL);
+	if (imx283->mode_active_width_ctrl)
+		imx283->mode_active_width_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	if (imx283->mode_active_height_ctrl)
+		imx283->mode_active_height_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/* Initial vblank/hblank/exposure based on the current mode. */
 	imx283->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
 					   V4L2_CID_VBLANK,
-					   mode->min_VMAX - mode->height,
+					   imx283_min_vmax(mode) - imx283_output_height(mode),
 					   IMX283_VMAX_MAX, 1,
-					   mode->default_VMAX - mode->height);
+					   mode->default_VMAX - imx283_output_height(mode));
 
 	imx283->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx283_ctrl_ops,
 					   V4L2_CID_HBLANK, 0, 0xffff, 1, 0);
