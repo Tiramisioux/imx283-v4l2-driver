@@ -2502,24 +2502,12 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	const struct imx283_readout_mode *readout;
 	const struct imx283_mode *mode = imx283->mode;
 	int ret;
-	/* Temporary transport/format diagnostics: report exactly what the
-	 * sensor subdev has negotiated at stream start. The CFE configuration
-	 * is downstream, so this captures the IMX283-side mbus format and crop
-	 * without changing any sensor programming.
+	/* Temporary transport diagnostics.  The IMX283 subdev does not expose
+	 * the negotiated CFE stride here, so only report sensor-side values.
+	 * Do not access v4l2_subdev::state: this kernel keeps the state external.
 	 */
 	{
-		struct v4l2_mbus_framefmt *try_fmt = NULL;
-		struct v4l2_rect *try_crop = NULL;
-		struct v4l2_mbus_framefmt *active_fmt = NULL;
 		struct v4l2_rect active_crop = imx283_output_crop(mode);
-
-		if (imx283->sd.state) {
-			active_fmt = v4l2_subdev_state_get_format(imx283->sd.state,
-								 IMAGE_PAD);
-			try_fmt = active_fmt;
-			try_crop = v4l2_subdev_state_get_crop(imx283->sd.state,
-								 IMAGE_PAD);
-		}
 
 		dev_info(imx283->dev,
 			 "STREAM DEBUG: mode=%u sensor=%ux%u bpp=%u code=0x%x\\n",
@@ -2535,15 +2523,6 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			 "STREAM DEBUG: expected_sensor_line_bytes=%u (packed %u-bit)\\n",
 			 DIV_ROUND_UP(imx283_output_width(mode) * mode->bpp, 8),
 			 mode->bpp);
-		if (try_fmt)
-			dev_info(imx283->dev,
-				 "STREAM DEBUG: state_fmt=%ux%u code=0x%x\\n",
-				 try_fmt->width, try_fmt->height, try_fmt->code);
-		if (try_crop)
-			dev_info(imx283->dev,
-				 "STREAM DEBUG: state_crop=%d,%d %ux%u\\n",
-				 try_crop->left, try_crop->top,
-				 try_crop->width, try_crop->height);
 	}
 
 
