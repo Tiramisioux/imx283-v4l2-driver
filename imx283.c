@@ -393,12 +393,30 @@ struct imx283_mode {
  */
 static unsigned int imx283_output_width(const struct imx283_mode *mode)
 {
-	return mode->width;
+	/*
+	 * HTRIMMING selects the picture window that the IMX283 transmits.
+	 * mode->width is the sensor timing/readout frame including the
+	 * horizontal optical-black allowance used by our mode table; it is
+	 * not the CSI-2 image width.
+	 *
+	 * The upstream driver advertises the active window here as well:
+	 * 5472 rather than 5568 for full-frame 1x1. Advertising the larger
+	 * bookkeeping size makes the receiver expect 96 more pixels per
+	 * line than the sensor actually places in the image packet. On RP1
+	 * that manifests as horizontal coloured/purple corruption and stale
+	 * pixels at the line edge.
+	 */
+	return imx283_active_width(mode);
 }
 
 static unsigned int imx283_output_height(const struct imx283_mode *mode)
 {
-	return mode->height;
+	/*
+	 * WRITE_VSIZE includes the sensor's vertical optical-black allowance,
+	 * but the CSI-2 image stream is the Y_OUT_SIZE picture height. Do not
+	 * advertise the extra VOB lines as part of the image frame.
+	 */
+	return imx283_active_height(mode);
 }
 
 static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
