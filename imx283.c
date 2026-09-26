@@ -802,7 +802,26 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  * avoid.
  */
 static const struct v4l2_rect imx283_mode_1c_window = {
-	.top = 852, .left = 236, .width = 3840, .height = 2160,
+	/*
+	 * .left = 236 is the hardware-confirmed half. .top is NOT: it was
+	 * 852, and 852 is what you get from
+	 *     active.top + (3648 - 2160) / 2
+	 * when active.top is 108 -- the SWAPPED value this branch corrected.
+	 * Against the real active.top of 40 the centred row is 784, so 852
+	 * framed this mode 68 rows low.
+	 *
+	 * That distinction matters more than it used to. The vertical-crop
+	 * gate in imx283_start_streaming() was widened from "Mode 0 only" to
+	 * `mode->veff && mode->vbin_ratio`, and MODE_1C satisfies both, so
+	 * .top now reaches VWINPOS instead of being metadata. It is a real
+	 * window position, and it was wrong for the same reason all 105
+	 * aspect rows were.
+	 *
+	 * Only the horizontal half survives from measurement: centring .left
+	 * (236 -> 856) streams a grey ramp and colour noise, which is why it
+	 * stays where the sensor wants it.
+	 */
+	.top = 784, .left = 236, .width = 3840, .height = 2160,
 };
 
 #define IMX283_ASPECT_MODE_1C(_w, _h) \
@@ -1153,7 +1172,7 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.mode = IMX283_MODE_1A,
 		.bpp = 10,
 		.width = 5472 + 96,
-		.height = 3078 + 16,
+		.height = 3076 + 16,   /* matches the 3076 crop below */
 		.min_HMAX = 745,
 		.min_VMAX = 3203,
 		.default_HMAX = 750,
@@ -1180,7 +1199,15 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.vbin_ratio = 1,
 		.horizontal_ob = 96,
 		.vertical_ob = 16,
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3078),
+		/*
+		 * 3076, not the readout's nominal 3078. A window height that is
+		 * not a multiple of 4 gives an ODD centred top -- 40 + (3648 -
+		 * 3078)/2 = 325 -- which starts the readout one row into the
+		 * CFA and inverts the Bayer phase against the SRGGB the driver
+		 * advertises. 3076 centres on 326 and costs two rows.
+		 * IMX283_MODE_6 already uses 3076 for the same shape.
+		 */
+		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
 	},
 	{
 		/*
@@ -1376,8 +1403,17 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 * hardware decides where this window is.
 		 */
 		.crop = {
+			/*
+			 * .top was 852 = active.top + (3648-2160)/2 with the
+			 * SWAPPED active.top of 108. Against the real 40 the
+			 * centred row is 784, so 852 framed this mode 68 rows
+			 * low. .left stays 236: that half IS hardware-confirmed
+			 * (centring it streams a grey ramp and colour noise).
+			 * See imx283_mode_1c_window above, which this must agree
+			 * with -- the aspect family is centred on that rect.
+			 */
 			.left   = 236,
-			.top    = 852,
+			.top    = 784,
 			.width  = 3840,
 			.height = 2160,
 		},
@@ -1399,7 +1435,15 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 * unlike IMX283_MODE_2A's 2x2 family there is no true-vs-nominal split
 	 * here: _w is 5472 both structurally and for the ratio math.
 	 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 3076, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.78:1 */
+	/*
+	 * 1.78:1 is NOT emitted here. Correcting the base IMX283_MODE_1A
+	 * entry's window to 3076 (its 3078 gave an ODD centred top of 325)
+	 * made that entry exactly 5568x3092 on a 5472x3076 crop -- which is
+	 * what this row would generate, to the pixel. A duplicate (bpp,
+	 * width, height) is unreachable: v4l2_find_nearest_size() returns
+	 * the first exact match, so the second is dead code. The base entry
+	 * serves this ratio. Same reasoning as MODE_1C's 1.78:1 below.
+	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2960, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2896, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2880, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.90:1 */
