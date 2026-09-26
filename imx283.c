@@ -2586,10 +2586,30 @@ static int imx283_start_streaming(struct imx283 *imx283)
 		  IMX283_HTRIMMING_EN | IMX283_HTRIMMING_RESERVED, &ret);
 	{
 		struct v4l2_rect output_crop = imx283_output_crop(mode);
+		u32 htrim_start;
+		u32 htrim_end;
+
+		/*
+		 * mode->width is the CSI-2 transport width: active width plus
+		 * horizontal optical-black columns.  The DNG geometry confirms that
+		 * the 96-column HOB precedes the 5472 active pixels in the delivered
+		 * 5568-pixel line.
+		 *
+		 * mode->crop is expressed in native sensor coordinates, where the
+		 * recommended active area starts at X=108.  Therefore the trimming
+		 * window must start 96 pixels earlier (108 - horizontal_ob = 12)
+		 * so that the transport frame contains the HOB followed by the
+		 * complete active image.  The previous code started at 108 while
+		 * advertising a 5568-pixel transport frame, forcing the receiver to
+		 * reconcile a 5472-pixel sensor window with a 5568-pixel format.
+		 */
+		htrim_start = output_crop.left - mode->horizontal_ob;
+		htrim_end = htrim_start + imx283_output_width(mode);
+
 		cci_write(imx283, IMX283_REG_HTRIMMING_START,
-			  output_crop.left, &ret);
+			  htrim_start, &ret);
 		cci_write(imx283, IMX283_REG_HTRIMMING_END,
-			  output_crop.left + output_crop.width, &ret);
+			  htrim_end, &ret);
 	}
 
 	/* Todo: These must be calculated based on the link-freq and mode */
