@@ -2531,6 +2531,10 @@ static int imx283_start_streaming(struct imx283 *imx283)
 			 active_crop.left, active_crop.top,
 			 active_crop.width, active_crop.height,
 			 mode->horizontal_ob, mode->vertical_ob);
+		dev_info(imx283->dev,
+			 "STREAM DEBUG: expected_sensor_line_bytes=%u (packed %u-bit)\\n",
+			 DIV_ROUND_UP(imx283_output_width(mode) * mode->bpp, 8),
+			 mode->bpp);
 		if (try_fmt)
 			dev_info(imx283->dev,
 				 "STREAM DEBUG: state_fmt=%ux%u code=0x%x\\n",
