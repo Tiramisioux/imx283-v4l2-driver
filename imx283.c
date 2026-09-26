@@ -748,10 +748,41 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  * into the grey-ramp/colour-noise failure that .left = 236 exists to
  * avoid.
  */
+/*
+ * IMX283_MODE_1C horizontal window origin -- TWO CANDIDATES, ONLY ONE EVER
+ * TESTED. See development/imx283-active-size/ROUND2.md, Defect C4.
+ *
+ * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): hardware-tested. Centring
+ * this window's .left against imx283_active_area (236 -> 856) streamed a
+ * grey ramp and colour noise on real hardware, so 236 is where the 0x30
+ * readout mode actually wants its window.
+ *
+ * IMX283_MODE_1C_WINDOW_LEFT_CENTRED (924): the *correctly* centred value,
+ * i.e. imx283_active_area.left + (imx283_active_area.width - 3840) / 2
+ * = 108 + (5472 - 3840) / 2 = 924. This has NEVER been tested. The earlier
+ * A/B that seemed to rule out centring actually tested 856, which is
+ * 40 + (5472 - 3840) / 2 -- centred against the SWAPPED active_area.left
+ * = 40 that this branch corrected, not against the real active_area.left
+ * = 108. That A/B's conclusion ("centring fails") is therefore invalid for
+ * 924, which is a different, untested value.
+ *
+ * ACTIVE CHOICE: HW_CONFIRMED (236). Left unchanged in this branch: 924
+ * cannot be tested here (no Pi access from this session), and the
+ * instruction for this round is not to silently swap an unverified value
+ * in for a hardware-confirmed one. See ROUND2.md Defect C4 for the exact
+ * A/B recipe to test 924 versus 236 on hardware.
+ */
+#define IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED 236
+#define IMX283_MODE_1C_WINDOW_LEFT_CENTRED      924	/* UNTESTED -- see comment above */
+#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED
+
 static const struct v4l2_rect imx283_mode_1c_window = {
 	/*
-	 * .left = 236 is the hardware-confirmed half. .top is NOT: it was
-	 * 852, and 852 is what you get from
+	 * .left: see IMX283_MODE_1C_WINDOW_LEFT above -- 236, hardware-
+	 * confirmed, both candidates documented there.
+	 *
+	 * .top = 784 is NOT the hardware-confirmed half: it was 852, and 852
+	 * is what you get from
 	 *     active.top + (3648 - 2160) / 2
 	 * when active.top is 108 -- the SWAPPED value this branch corrected.
 	 * Against the real active.top of 40 the centred row is 784, so 852
@@ -763,12 +794,8 @@ static const struct v4l2_rect imx283_mode_1c_window = {
 	 * .top now reaches VWINPOS instead of being metadata. It is a real
 	 * window position, and it was wrong for the same reason all 105
 	 * aspect rows were.
-	 *
-	 * Only the horizontal half survives from measurement: centring .left
-	 * (236 -> 856) streams a grey ramp and colour noise, which is why it
-	 * stays where the sensor wants it.
 	 */
-	.top = 784, .left = 236, .width = 3840, .height = 2160,
+	.top = 784, .left = IMX283_MODE_1C_WINDOW_LEFT, .width = 3840, .height = 2160,
 };
 
 #define IMX283_ASPECT_MODE_1C(_w, _h) \
@@ -999,19 +1026,19 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	 * and not others).
 	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3648, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 4852, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5000, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 3076, 887, 3793, 3221, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.78:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2960, 887, 3793, 3105, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2896, 887, 3793, 3041, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.89:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 4864, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5016, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 3080, 887, 3793, 3221, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.78:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2956, 887, 3793, 3105, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2884, 887, 3793, 3041, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2880, 887, 3793, 3025, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2736, 887, 3793, 2881, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.00:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2488, 887, 3793, 2633, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.20:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2468, 887, 3793, 2613, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.22:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2332, 887, 3793, 2477, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.35:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2292, 887, 3793, 2437, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.39:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2192, 887, 3793, 2337, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.50:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2148, 887, 3793, 2293, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.55:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2464, 887, 3793, 2613, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2328, 887, 3793, 2477, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2288, 887, 3793, 2437, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.39:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2188, 887, 3793, 2337, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 5472, 2144, 887, 3793, 2293, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 2.55:1 */
 	/*
 	 * IMX283_MODE_2 aspect-ratio family: the three TALL ratios (1:1, 1.33:1,
 	 * 1.37:1), on the taller/slower 2x2 parent. REBUILD.md section 7: the
@@ -1021,8 +1048,8 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	 * the fast parent's own window cannot be cropped INTO that window.
 	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 1824, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2426, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.33:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2500, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.37:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2432, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.33:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2, 12, 2508, 1824, 362, 3840, 2012, 375, 3840, 12, 1824, 2, 2, 48, 4), /* 1.37:1 */
 	/*
 	 * IMX283_MODE_2A aspect-ratio family: the other eleven (WIDE) ratios, on
 	 * the faster 2x2 parent -- measured cost of using it here is 0.0-0.1% of
@@ -1041,17 +1068,17 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	 * (measured 2026-09-26: optical black 0-47, picture 48-2783, no
 	 * constant-valued column anywhere). See imx283_active_width().
 	 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1520, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.78:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1462, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1432, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.89:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1424, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.90:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1352, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.00:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1230, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.20:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1220, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.22:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1152, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.35:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1132, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.39:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1082, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.50:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1062, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.55:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1540, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.78:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1478, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1442, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.89:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1440, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 1.90:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1368, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.00:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1244, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.20:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1232, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1164, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1144, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.39:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1094, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_2A, 12, 2736, 1072, 362, 3300, 1758, 375, 3300, 12, 1824, 2, 2, 48, 4), /* 2.55:1 */
 	/*
 	 * IMX283_MODE_3 aspect-ratio family: only parent for 12-bit 3x3, so all
 	 * fourteen ratios use it, against the full active area. Fact 2 measured
@@ -1063,17 +1090,17 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1216, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1620, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.33:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1668, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.37:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1672, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.37:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 1028, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.78:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 988, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 968, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.89:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 984, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 964, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 960, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 912, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.00:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 832, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.20:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 824, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.22:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 780, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 828, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.20:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 820, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 776, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.35:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 764, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.39:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 732, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 728, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.50:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 716, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.55:1 */
 };
 static const struct imx283_mode supported_modes_10bit[] = {
@@ -1348,12 +1375,14 @@ static const struct imx283_mode supported_modes_10bit[] = {
 			 * .top was 852 = active.top + (3648-2160)/2 with the
 			 * SWAPPED active.top of 108. Against the real 40 the
 			 * centred row is 784, so 852 framed this mode 68 rows
-			 * low. .left stays 236: that half IS hardware-confirmed
-			 * (centring it streams a grey ramp and colour noise).
-			 * See imx283_mode_1c_window above, which this must agree
-			 * with -- the aspect family is centred on that rect.
+			 * low. .left is IMX283_MODE_1C_WINDOW_LEFT (defined next to
+			 * imx283_mode_1c_window above, with both candidates
+			 * documented -- 236 hardware-confirmed, 924 untested -- and
+			 * which one is active). This MUST agree with
+			 * imx283_mode_1c_window: the aspect family is centred on
+			 * that rect.
 			 */
-			.left   = 236,
+			.left   = IMX283_MODE_1C_WINDOW_LEFT,
 			.top    = 784,
 			.width  = 3840,
 			.height = 2160,
@@ -1367,8 +1396,8 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 * since they need more rows than IMX283_MODE_1A's own window has.
 	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 3648, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 4852, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 5000, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 4864, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1, 10, 5016, 3648, 745, 3793, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.37:1 */
 	/*
 	 * IMX283_MODE_1A aspect-ratio family: the other eleven (WIDE) ratios, on
 	 * the faster parent -- 0.0-0.1% frame-area cost (REBUILD.md section 7).
@@ -1385,16 +1414,16 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 * the first exact match, so the second is dead code. The base entry
 	 * serves this ratio. Same reasoning as MODE_1C's 1.78:1 below.
 	 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2960, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2896, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.89:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2956, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.85:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2884, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.89:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2880, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2736, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.00:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2488, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.20:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2468, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.22:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2332, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.35:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2292, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.39:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2192, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.50:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2148, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.55:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2464, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.22:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2328, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.35:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2288, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.39:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2188, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_1A, 10, 5472, 2144, 745, 3203, 0, 750, 3840, 12, 3694, 1, 1, 96, 16), /* 2.55:1 */
 	/*
 	 * IMX283_MODE_1C aspect-ratio family (10-bit UHD-window family, the
 	 * spec's "10-bit UHD, 1x1 only" -- no 12-bit UHD-window family exists,
@@ -1427,18 +1456,18 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 * full 3840x2160 UHD frame.
 	 */
 	IMX283_ASPECT_MODE_1C(2160, 2160), /* 1:1 */
-	IMX283_ASPECT_MODE_1C(2876, 2160), /* 1.33:1 */
-	IMX283_ASPECT_MODE_1C(2960, 2160), /* 1.37:1 */
+	IMX283_ASPECT_MODE_1C(2880, 2160), /* 1.33:1 */
+	IMX283_ASPECT_MODE_1C(2972, 2160), /* 1.37:1 */
 	IMX283_ASPECT_MODE_1C(3840, 2076), /* 1.85:1 */
-	IMX283_ASPECT_MODE_1C(3840, 2032), /* 1.89:1 */
-	IMX283_ASPECT_MODE_1C(3840, 2024), /* 1.90:1 */
+	IMX283_ASPECT_MODE_1C(3840, 2024), /* 1.89:1 */
+	IMX283_ASPECT_MODE_1C(3840, 2020), /* 1.90:1 */
 	IMX283_ASPECT_MODE_1C(3840, 1920), /* 2.00:1 */
-	IMX283_ASPECT_MODE_1C(3840, 1748), /* 2.20:1 */
-	IMX283_ASPECT_MODE_1C(3840, 1732), /* 2.22:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1744), /* 2.20:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1728), /* 2.22:1 */
 	IMX283_ASPECT_MODE_1C(3840, 1636), /* 2.35:1 */
 	IMX283_ASPECT_MODE_1C(3840, 1608), /* 2.39:1 */
 	IMX283_ASPECT_MODE_1C(3840, 1536), /* 2.50:1 */
-	IMX283_ASPECT_MODE_1C(3840, 1508), /* 2.55:1 */
+	IMX283_ASPECT_MODE_1C(3840, 1504), /* 2.55:1 */
 };
 
 /*
