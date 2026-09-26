@@ -391,6 +391,20 @@ struct imx283_mode {
  * line length, producing the horizontal coloured-striping artifact seen on
  * CM5.
  */
+static unsigned int imx283_active_width(const struct imx283_mode *mode)
+{
+	if (mode->active_width)
+		return mode->active_width;
+	return mode->width - mode->horizontal_ob;
+}
+
+static unsigned int imx283_active_height(const struct imx283_mode *mode)
+{
+	if (mode->active_height)
+		return mode->active_height;
+	return mode->height - mode->vertical_ob;
+}
+
 static unsigned int imx283_output_width(const struct imx283_mode *mode)
 {
 	/*
