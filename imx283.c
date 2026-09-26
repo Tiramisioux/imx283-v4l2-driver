@@ -887,39 +887,6 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3648),
 	},
 	{
-		/* Readout mode 2A: 2x2 binned 12-bit, 16:9 (2736x1538 active). */
-		.mode = IMX283_MODE_2A,
-		.bpp = 12,
-		.width = 2736 + 48,
-		.height = 1538 + 4,
-		.min_HMAX = 362,
-		.min_VMAX = 3300,
-		.default_HMAX = 375,
-		.default_VMAX = 3300,
-		.min_SHR = 12,
-		/*
-		 * Same 2x2 binning family as IMX283_MODE_2 (mdsel1 0x0d,
-		 * "Horizontal / Vertical 2/2-line binning", no subsampling),
-		 * so it gets mainline's veff for 2x2 binning (WP-283-3).
-		 */
-		.veff = 1824,
-		.vst = 0,
-		.vct = 0,
-		.hbin_ratio = 2,
-		.vbin_ratio = 2,
-		.horizontal_ob = 48,
-		.vertical_ob = 4,
-		/*
-		 * Same 2x2-binned width/horizontal_ob as IMX283_MODE_2 above,
-		 * and the same measured shortfall: see that entry's comment
-		 * and development/imx283-active-size/BRIEF.md. Both DNGs used
-		 * to establish 2704 were captured at this width (2784) and
-		 * this horizontal_ob (48); the family, not the height, is
-		 * what the measurement is keyed on.
-		 */
-		.crop = CENTERED_RECTANGLE(imx283_active_area, 5472, 3076),
-	},
-	{
 		/* Readout mode 3: 3x3 binned 12-bit (1824x1216 active). */
 		.mode = IMX283_MODE_3,
 		.bpp = 12,
@@ -1086,7 +1053,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1216, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1620, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.33:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1672, 1216, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.37:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 1028, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.78:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1820, 1024, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.78:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 984, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.85:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 960, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 1.90:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 912, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.00:1 */
@@ -1094,7 +1061,7 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 820, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.22:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 776, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.35:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 764, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.39:1 */
-	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 728, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.50:1 */
+	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1820, 728, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.50:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_3, 12, 1824, 716, 284, 4200, 2980, 285, 4200, 16, 1234, 3, 3, 32, 4), /* 2.55:1 */
 };
 static const struct imx283_mode supported_modes_10bit[] = {
