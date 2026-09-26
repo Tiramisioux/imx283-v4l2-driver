@@ -407,6 +407,29 @@ static struct v4l2_rect imx283_output_crop(const struct imx283_mode *mode)
 }
 
 /*
+ * The CSI-2 frame contains the sensor's leading optical-black columns
+ * and trailing optical-black rows.  V4L2 selection, however, is expressed
+ * in the coordinates of the frame carried on the media bus, not in the
+ * native sensor coordinates used by mode->crop.
+ *
+ * Keep mode->crop for programming the IMX283 readout window, but expose
+ * the actual picture rectangle inside the transport frame separately.
+ * For the full 1x1 mode this is 96,0/5472x3648 inside 5568x3664.
+ */
+static struct v4l2_rect imx283_transport_active_crop(
+	const struct imx283_mode *mode)
+{
+	struct v4l2_rect crop = {
+		.left = mode->horizontal_ob,
+		.top = 0,
+		.width = imx283_active_width(mode),
+		.height = imx283_active_height(mode),
+	};
+
+	return crop;
+}
+
+/*
  * The picture size actually delivered inside the transport frame -- the
  * "Mode Active Width"/"Mode Active Height" controls exist to publish
  * exactly this (see their V4L2_CID comment).
@@ -2427,7 +2450,8 @@ static int imx283_set_pad_format(struct v4l2_subdev *sd,
 		 * needs no store: imx283_get_selection() answers it straight
 		 * from imx283->mode->crop, see __imx283_get_pad_crop().
 		 */
-		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) = imx283_output_crop(mode);
+		*v4l2_subdev_state_get_crop(sd_state, fmt->pad) =
+			imx283_transport_active_crop(mode);
 	} else if (imx283->mode != mode) {
 		imx283->mode = mode;
 		imx283->fmt_code = fmt->format.code;
@@ -2449,7 +2473,7 @@ __imx283_get_pad_crop(struct imx283 *imx283,
 		return v4l2_subdev_state_get_crop(sd_state, pad);
 	case V4L2_SUBDEV_FORMAT_ACTIVE: {
 		static struct v4l2_rect output_crop;
-		output_crop = imx283_output_crop(imx283->mode);
+		output_crop = imx283_transport_active_crop(imx283->mode);
 		return &output_crop;
 	}
 	}
@@ -2803,7 +2827,7 @@ static int imx283_get_selection(struct v4l2_subdev *sd,
 
 	case V4L2_SEL_TGT_CROP_DEFAULT: {
 		struct imx283 *imx283 = to_imx283(sd);
-		sel->r = imx283_output_crop(imx283->mode);
+		sel->r = imx283_transport_active_crop(imx283->mode);
 		return 0;
 	}
 	case V4L2_SEL_TGT_CROP_BOUNDS:
