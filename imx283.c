@@ -746,31 +746,46 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  * which candidate is currently selected and why.
  */
 /*
- * IMX283_MODE_1C horizontal window origin -- TWO CANDIDATES, ONLY ONE EVER
- * TESTED. See development/imx283-active-size/ROUND2.md, Defect C4.
+ * IMX283_MODE_1C horizontal window origin -- BOTH CANDIDATES NOW TESTED.
+ * See development/imx283-active-size/ROUND2.md, Defect C4.
  *
- * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): hardware-tested and known
- * to stream a clean picture. Kept as the fallback -- see below.
+ * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): where the sensor wants this
+ * window. Streams a clean picture with the horizontal optical black in its
+ * expected place -- measured 2026-09-22 on a 3936x2176 frame, columns 0..95
+ * flat at the black level, column 96 the first picture column.
  *
- * IMX283_MODE_1C_WINDOW_LEFT_CENTRED (924): the *correctly* centred value,
- * i.e. imx283_active_area.left + (imx283_active_area.width - 3840) / 2
- * = 108 + (5472 - 3840) / 2 = 924.
+ * IMX283_MODE_1C_WINDOW_LEFT_CENTRED (924): the arithmetically centred value,
+ * imx283_active_area.left + (imx283_active_area.width - 3840) / 2
+ * = 108 + (5472 - 3840) / 2. TESTED 2026-09-27 AND IT FAILS.
  *
- * ACTIVE CHOICE: CENTRED (924). This is now active and is UNTESTED ON
- * HARDWARE -- nobody has streamed it. The earlier A/B that appeared to rule
- * out centring this window tested 856, which is 40 + (5472 - 3840) / 2 --
- * centred against the OLD SWAPPED active_area.left of 40, a value this
- * branch chain corrected to 108. That result (a grey ramp and colour noise)
- * does not transfer to 924, a different, never-tested value derived from
- * the corrected origin.
+ * ACTIVE CHOICE: HW_CONFIRMED (236).
  *
- * 236 remains available as IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED and is
- * the value to fall back to if 924 streams a grey ramp or colour noise on
- * real hardware. See ROUND2.md Defect C4 for the exact A/B recipe.
+ * What the 924 test showed, on CINEPI_26-09-27_035947_F07 (3936x1652, 10-bit):
+ * the frame contains NO OPTICAL BLACK AT ALL. Columns 0..95, which carry a
+ * flat black level at 236, instead carry picture-like data -- sampled column
+ * means 310 to 680 with sd 190 to 280, against a BlackLevel of 50 and the
+ * sd of 1 to 5 a real OB region gives. The delivered frame therefore does not
+ * match what .horizontal_ob and ActiveArea say about it, and the DNG's
+ * ActiveArea discards 96 columns of real picture. Not a ramp -- the column
+ * profile is scene structure -- so this is a different failure from the 856
+ * one, but a failure all the same.
+ *
+ * The reasoning that retired the ORIGINAL objection still stands and should
+ * not be re-litigated: the earlier A/B tested 856 = 40 + (5472 - 3840) / 2,
+ * centred against the OLD SWAPPED active_area.left of 40, so it could never
+ * have told us anything about 924. That argument was right. The CONCLUSION
+ * drawn from it -- that 924 might therefore work -- is what measurement has
+ * now refuted. 236 keeps its place on evidence rather than on inheritance.
+ *
+ * CONSEQUENCE, and it is deliberate: this window is off-centre in the active
+ * area, so the MODE_1C base entry and its 13 aspect rows fail
+ * check_mode_table.py's condition 1 ("origin derived from imx283_active_area").
+ * That is a reported, measured exception, not an oversight. Do not "fix" it
+ * by centring the window; that is exactly what this comment records failing.
  */
 #define IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED 236
 #define IMX283_MODE_1C_WINDOW_LEFT_CENTRED      924
-#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_CENTRED
+#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED
 
 static const struct v4l2_rect imx283_mode_1c_window = {
 	/*
