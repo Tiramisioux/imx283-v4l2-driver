@@ -785,7 +785,7 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  */
 #define IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED 236
 #define IMX283_MODE_1C_WINDOW_LEFT_CENTRED      924
-#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED
+#define IMX283_MODE_1C_WINDOW_LEFT IMX283_MODE_1C_WINDOW_LEFT_CENTRED
 
 static const struct v4l2_rect imx283_mode_1c_window = {
 	/*
