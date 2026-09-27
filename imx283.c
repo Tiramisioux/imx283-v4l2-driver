@@ -708,7 +708,7 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 		.min_HMAX = 887, .min_VMAX = 3793, \
 		.crop_min_VMAX = (_ch) + 16 + 129, \
 		.default_HMAX = 900, .default_VMAX = 4000, \
-		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
+		.min_SHR = 12, .veff = 2176, .vst = 0, .vct = 0, \
 		.hbin_ratio = 1, .vbin_ratio = 1, \
 		.horizontal_ob = 96, .vertical_ob = 16, \
 		.crop = { .left = (_left), .top = (_top), .width = (_cw), .height = (_ch) }, \
@@ -841,7 +841,7 @@ static const struct v4l2_rect imx283_mode_1c_window = {
 		.width = (_w) + 96, .height = (_h) + 16, \
 		.min_HMAX = 544, .min_VMAX = 2200, .crop_min_VMAX = 0, \
 		.default_HMAX = 576, .default_VMAX = 2500, \
-		.min_SHR = 12, .veff = 3694, .vst = 0, .vct = 0, \
+		.min_SHR = 12, .veff = 2176, .vst = 0, .vct = 0, \
 		.hbin_ratio = 1, .vbin_ratio = 1, \
 		.horizontal_ob = 96, .vertical_ob = 16, \
 		.crop = CENTERED_RECTANGLE(imx283_mode_1c_window, (_w), (_h)), \
@@ -1278,7 +1278,7 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 * the Pi-validated 6.12.y merge (WP-283-1), unlike this
 		 * fork's own unvalidated 1S/4/5/6 additions.
 		 */
-		.veff = 3694,
+		.veff = 2176,
 		.vst = 0,
 		.vct = 0,
 		.hbin_ratio = 1,
