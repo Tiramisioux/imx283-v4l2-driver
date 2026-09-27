@@ -807,9 +807,34 @@ static const struct v4l2_rect imx283_mode_1c_window = {
 	 * window position, and it was wrong for the same reason all 105
 	 * aspect rows were.
 	 */
-	.top = 784, .left = IMX283_MODE_1C_WINDOW_LEFT, .width = 3840, .height = 2160,
+	.top = 852, .left = IMX283_MODE_1C_WINDOW_LEFT, .width = 3840, .height = 2160,
 };
 
+/*
+ * EXPERIMENTAL, and not advertised: get_mode_table() omits
+ * these unless the experimental_modes=1 module parameter is
+ * set. They stream noise on real hardware (operator,
+ * 2026-09-27) and the reason is a timing value this driver
+ * does not have.
+ *
+ * veff above is 3694 -- Mode 0's effective vertical size,
+ * inherited by this family because nothing else was known.
+ * imx283_start_streaming() cuts the VCROP window with
+ *     v_widcut = (veff - y_out_size) / 2
+ * so the 2.35:1 row (1636 delivered lines) asks the sensor to
+ * cut (3694 - 1636) / 2 = 1029 lines out of drive mode 0x30,
+ * which does not scan anywhere near 3694. The window lands
+ * outside what the mode reads and the frame is noise with a
+ * fragment of picture in it -- exactly what was reported.
+ *
+ * The base IMX283_MODE_1C entry below is NOT experimental: at
+ * its full 2160 lines it is the mode that has always worked.
+ *
+ * To finish this family somebody needs mode 0x30's OWN
+ * effective vertical size. That is a sensor timing value and
+ * this driver does not invent those, so it stays unmeasured and
+ * these rows stay off until it is known.
+ */
 #define IMX283_ASPECT_MODE_1C(_w, _h) \
 	{ \
 		.mode = IMX283_MODE_1C, .bpp = 10, \
@@ -820,7 +845,7 @@ static const struct v4l2_rect imx283_mode_1c_window = {
 		.hbin_ratio = 1, .vbin_ratio = 1, \
 		.horizontal_ob = 96, .vertical_ob = 16, \
 		.crop = CENTERED_RECTANGLE(imx283_mode_1c_window, (_w), (_h)), \
-		.experimental = false, \
+		.experimental = true, \
 	}
 
 static const struct imx283_mode supported_modes_12bit[] = {
@@ -1347,18 +1372,23 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 */
 		.crop = {
 			/*
-			 * .top was 852 = active.top + (3648-2160)/2 with the
-			 * SWAPPED active.top of 108. Against the real 40 the
-			 * centred row is 784, so 852 framed this mode 68 rows
-			 * low. .left is IMX283_MODE_1C_WINDOW_LEFT (defined next to
-			 * imx283_mode_1c_window above, with both candidates
-			 * documented -- 236 hardware-confirmed, 924 untested -- and
-			 * which one is active). This MUST agree with
-			 * imx283_mode_1c_window: the aspect family is centred on
-			 * that rect.
+			 * .top = 852 is the value that shipped a clean 3936x2176
+			 * frame (measured 2026-09-22). It was briefly changed to
+			 * 784 -- arithmetically the centred row against the
+			 * corrected active.top of 40, where 852 is centred against
+			 * the SWAPPED 108 -- on the reasoning that .top now reaches
+			 * VWINPOS instead of being metadata. That reasoning is
+			 * sound and the arithmetic is right, and the sensor still
+			 * said no: 2026-09-27, "distorted, only noise". Restored to
+			 * 852 on evidence.
+			 *
+			 * .left is IMX283_MODE_1C_WINDOW_LEFT (defined next to
+			 * imx283_mode_1c_window above, with both candidates and the
+			 * measurement that chose between them). This MUST agree
+			 * with imx283_mode_1c_window.
 			 */
 			.left   = IMX283_MODE_1C_WINDOW_LEFT,
-			.top    = 784,
+			.top    = 852,
 			.width  = 3840,
 			.height = 2160,
 		},
