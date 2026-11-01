@@ -746,42 +746,55 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
  * which candidate is currently selected and why.
  */
 /*
- * IMX283_MODE_1C horizontal window origin -- BOTH CANDIDATES NOW TESTED.
+ * IMX283_MODE_1C horizontal window origin.
  * See development/imx283-active-size/ROUND2.md, Defect C4.
  *
- * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): where the sensor wants this
- * window. Streams a clean picture with the horizontal optical black in its
- * expected place -- measured 2026-09-22 on a 3936x2176 frame, columns 0..95
- * flat at the black level, column 96 the first picture column.
+ * ACTIVE CHOICE: CENTRED (924), since cb925e5.
  *
  * IMX283_MODE_1C_WINDOW_LEFT_CENTRED (924): the arithmetically centred value,
  * imx283_active_area.left + (imx283_active_area.width - 3840) / 2
- * = 108 + (5472 - 3840) / 2. TESTED 2026-09-27 AND IT FAILS.
+ * = 108 + (5472 - 3840) / 2.
  *
- * ACTIVE CHOICE: HW_CONFIRMED (236).
+ * IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED (236): the value this window used
+ * before 924, kept as the fallback. Streams a clean picture with the
+ * horizontal optical black in its expected place -- measured 2026-09-22 on a
+ * 3936x2176 frame, columns 0..95 flat at the black level, column 96 the first
+ * picture column.
  *
- * What the 924 test showed, on CINEPI_26-09-27_035947_F07 (3936x1652, 10-bit):
- * the frame contains NO OPTICAL BLACK AT ALL. Columns 0..95, which carry a
- * flat black level at 236, instead carry picture-like data -- sampled column
- * means 310 to 680 with sd 190 to 280, against a BlackLevel of 50 and the
- * sd of 1 to 5 a real OB region gives. The delivered frame therefore does not
- * match what .horizontal_ob and ActiveArea say about it, and the DNG's
- * ActiveArea discards 96 columns of real picture. Not a ramp -- the column
- * profile is scene structure -- so this is a different failure from the 856
- * one, but a failure all the same.
+ * WHAT IS KNOWN ABOUT 924, and what is not:
+ *  - Verified (cb925e5) on a live ISP preview frame pulled off cinepi-raw's
+ *    MJPEG server: 3936x2176 10-bit, a full picture edge to edge, no short
+ *    frame, no noise band.
+ *  - NOT yet confirmed on a RAW 3936x2176 frame: that columns 0..95 are real
+ *    optical black (flat at the black level, as they are at 236) and that
+ *    the 16 trailing rows are too. The preview shows the picture, not the OB
+ *    margins, so .horizontal_ob = 96 / .vertical_ob = 16 are still taken on
+ *    trust at 924. Until a raw frame is checked, the DNG's ActiveArea may be
+ *    discarding picture columns or keeping OB ones.
  *
- * The reasoning that retired the ORIGINAL objection still stands and should
- * not be re-litigated: the earlier A/B tested 856 = 40 + (5472 - 3840) / 2,
- * centred against the OLD SWAPPED active_area.left of 40, so it could never
- * have told us anything about 924. That argument was right. The CONCLUSION
- * drawn from it -- that 924 might therefore work -- is what measurement has
- * now refuted. 236 keeps its place on evidence rather than on inheritance.
+ * HISTORY, kept so nobody repeats it. 924 was selected on 2026-09-26, and
+ * on 2026-09-27 the first 10-bit take after that (CINEPI_26-09-27_035947_F07,
+ * 3936x1652 10-bit, the 2.35:1 row) came back as noise, so 924 was blamed and
+ * the window put back to 236 (de6693c). That take showed columns 0..95
+ * carrying picture-like data (sampled column means 310 to 680, sd 190 to
+ * 280, against a BlackLevel of 50), i.e. no optical black. But the take was
+ * not a valid test of the window: MODE_1C then carried Mode 0's veff of
+ * 3694, so imx283_start_streaming() cut v_widcut = (3694 - 1636) / 2 lines
+ * out of a readout that only scans 2176, and the frame was broken whatever
+ * .left was. veff was fixed in 335781d (see the experimental-rows comment
+ * below), and 924 was restored in cb925e5. That take therefore does not
+ * decide the base mode either way.
  *
- * CONSEQUENCE, and it is deliberate: this window is off-centre in the active
- * area, so the MODE_1C base entry and its 13 aspect rows fail
- * check_mode_table.py's condition 1 ("origin derived from imx283_active_area").
- * That is a reported, measured exception, not an oversight. Do not "fix" it
- * by centring the window; that is exactly what this comment records failing.
+ * The earlier A/B that condemned 856 is separate and unaffected: 856 =
+ * 40 + (5472 - 3840) / 2 was centred against the OLD SWAPPED
+ * active_area.left of 40, so it is simply the wrong number and says nothing
+ * about 924.
+ *
+ * check_mode_table.py's condition 1 ("origin derived from
+ * imx283_active_area"): the horizontal origin of the MODE_1C base entry and
+ * its twelve aspect rows agrees with it at 924. What still fails is .top: 852
+ * is centred against the SWAPPED active_area.top of 108, where the corrected
+ * 40 gives 784. See the comment on imx283_mode_1c_window.top below.
  */
 #define IMX283_MODE_1C_WINDOW_LEFT_HW_CONFIRMED 236
 #define IMX283_MODE_1C_WINDOW_LEFT_CENTRED      924
@@ -790,50 +803,56 @@ static const struct IMX283_reg_list link_freq_reglist[] = {
 static const struct v4l2_rect imx283_mode_1c_window = {
 	/*
 	 * .left: see IMX283_MODE_1C_WINDOW_LEFT above -- currently 924
-	 * (CENTRED, untested on hardware), with 236 (HW_CONFIRMED) kept as
-	 * the fallback. Both candidates documented there.
+	 * (CENTRED; verified on an ISP preview frame only, the OB margins
+	 * are not yet confirmed on a raw frame), with 236 (HW_CONFIRMED)
+	 * kept as the fallback. Both candidates documented there.
 	 *
-	 * .top = 784 is NOT the hardware-confirmed half: it was 852, and 852
-	 * is what you get from
+	 * .top = 852 is the value under every clean 3936x2176 frame so far
+	 * (the 2026-09-22 raw frame and the cb925e5 preview). It is NOT the
+	 * centred row: 852 is
 	 *     active.top + (3648 - 2160) / 2
-	 * when active.top is 108 -- the SWAPPED value this branch corrected.
-	 * Against the real active.top of 40 the centred row is 784, so 852
-	 * framed this mode 68 rows low.
+	 * with active.top = 108, the SWAPPED value this branch corrected.
+	 * Against the real active.top of 40 the centred row is 784, 68 rows
+	 * higher. 784 was tried once and came back as noise (2026-09-27), but
+	 * that noise was MODE_1C's veff of 3694 (fixed in 335781d), the same
+	 * fault that wrongly condemned .left = 924, so 784 has never been
+	 * fairly tested. 852 stays until it has been: one build and one
+	 * reboot.
 	 *
-	 * That distinction matters more than it used to. The vertical-crop
-	 * gate in imx283_start_streaming() was widened from "Mode 0 only" to
-	 * `mode->veff && mode->vbin_ratio`, and MODE_1C satisfies both, so
-	 * .top now reaches VWINPOS instead of being metadata. It is a real
-	 * window position, and it was wrong for the same reason all 105
-	 * aspect rows were.
+	 * That matters. The vertical-crop gate in imx283_start_streaming() was
+	 * widened from "Mode 0 only" to `mode->veff && mode->vbin_ratio`, and
+	 * MODE_1C satisfies both, so .top reaches VWINPOS ((852 / 2) + vst =
+	 * 426 for the base entry) instead of being metadata. It is a real
+	 * window position, and it carries the same swapped-origin arithmetic
+	 * that all 105 aspect rows had before they were rebuilt.
 	 */
 	.top = 852, .left = IMX283_MODE_1C_WINDOW_LEFT, .width = 3840, .height = 2160,
 };
 
 /*
- * EXPERIMENTAL, and not advertised: get_mode_table() omits
- * these unless the experimental_modes=1 module parameter is
- * set. They stream noise on real hardware (operator,
- * 2026-09-27) and the reason is a timing value this driver
- * does not have.
+ * EXPERIMENTAL, and not advertised: get_mode_table() omits these twelve
+ * rows unless the experimental_modes=1 module parameter is set.
  *
- * veff above is 3694 -- Mode 0's effective vertical size,
- * inherited by this family because nothing else was known.
+ * HISTORY. They were reported as streaming noise on real hardware
+ * (operator, 2026-09-27), and the cause was a timing value this driver did
+ * not have. The family carried veff 3694 -- Mode 0's effective vertical
+ * size, inherited because nothing else was known.
  * imx283_start_streaming() cuts the VCROP window with
  *     v_widcut = (veff - y_out_size) / 2
- * so the 2.35:1 row (1636 delivered lines) asks the sensor to
- * cut (3694 - 1636) / 2 = 1029 lines out of drive mode 0x30,
- * which does not scan anywhere near 3694. The window lands
- * outside what the mode reads and the frame is noise with a
- * fragment of picture in it -- exactly what was reported.
+ * so the 2.35:1 row (1636 delivered lines) asked the sensor to cut
+ * (3694 - 1636) / 2 = 1029 lines out of drive mode 0x30, which scans only
+ * 2176 lines. The window landed outside what the mode reads and the frame
+ * was noise with a fragment of picture in it -- exactly what was reported.
  *
- * The base IMX283_MODE_1C entry below is NOT experimental: at
- * its full 2160 lines it is the mode that has always worked.
+ * CURRENT STATE. The macro below carries veff = 2176, drive mode 0x30's own
+ * scan height, back-solved from the measured short frame and verified on
+ * hardware for the base IMX283_MODE_1C entry (335781d). At 2176 the 2.35:1
+ * row's cut is (2176 - 1636) / 2 = 270 lines. That is a prediction for the
+ * twelve rows: no hardware test of them since the change is recorded, so
+ * they stay .experimental until each has been streamed.
  *
- * To finish this family somebody needs mode 0x30's OWN
- * effective vertical size. That is a sensor timing value and
- * this driver does not invent those, so it stays unmeasured and
- * these rows stay off until it is known.
+ * The base IMX283_MODE_1C entry below is NOT experimental: at its full 2160
+ * lines it is the mode that has always worked.
  */
 #define IMX283_ASPECT_MODE_1C(_w, _h) \
 	{ \
@@ -1273,10 +1292,17 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		.default_VMAX = 2500,
 		.min_SHR = 12,
 		/*
-		 * 1x1, no binning; every other 1x1 entry in this file (and
-		 * mainline's mode 0) uses veff 3694 (WP-283-3). Landed via
-		 * the Pi-validated 6.12.y merge (WP-283-1), unlike this
-		 * fork's own unvalidated 1S/4/5/6 additions.
+		 * 1x1, no binning. Unlike every other 1x1 entry in this file
+		 * (and mainline's mode 0), whose veff is 3694 (WP-283-3), this
+		 * one is 2176: drive mode 0x30's own scan height. It carried
+		 * 3694 until 335781d, inherited because nothing else was
+		 * known; v_widcut then came out as (3694 - 2160) / 2 = 767 on
+		 * each side of a readout that only scans 2176 lines, and the
+		 * delivered frame was 642 lines instead of 2160. 2176 is
+		 * back-solved from that measurement ((veff - 2160) / 2 = 8) and
+		 * verified on hardware. The entry itself landed via the
+		 * Pi-validated 6.12.y merge (WP-283-1), unlike this fork's own
+		 * unvalidated 1S/4/5/6 additions.
 		 */
 		.veff = 2176,
 		.vst = 0,
@@ -1298,7 +1324,8 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 * modes", 95183c8) cites nothing -- no datasheet window, no
 		 * register read-back. .top = 0 was provably wrong whatever
 		 * 0x30 does: this field is a *native* pixel-array coordinate
-		 * (imx283_active_area itself starts at .top = 108), so an
+		 * (imx283_active_area then started at .top = 108, and starts at
+		 * 40 now that the swapped origin is corrected), so an
 		 * active-pixel rectangle can never start at line 0. libcamera
 		 * builds analogCrop by subtracting the active-area origin and
 		 * duly reported a negative origin on the Pi:
@@ -1307,7 +1334,8 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 *              binning 1x1; mode-crop (236,0)/3840x2160]
 		 *
 		 * against, for a correct mode, mode-crop and analogCrop
-		 * differing by exactly the active origin (40,108). Reading
+		 * differing by exactly the active origin (then written as
+		 * (40,108), the swapped pair; (108,40) now). Reading
 		 * .top = 0 as "the window starts at the top of the array" is
 		 * the most likely origin of the bug: right idea, wrong
 		 * coordinate space.
@@ -1325,29 +1353,32 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 *    frame, not the scanned window. IMX283_MODE_3 bins 3x
 		 *    horizontally -- it scans all 5472 columns -- and still
 		 *    declares min_HMAX 284 against mode 0's 887.)
-		 *  - .crop.top is metadata only for this entry: the arbitrary
-		 *    vertical-crop path in imx283_start_streaming() is
-		 *    Mode-0-only, and 0x30's mdsel3/mdsel4 do not even set the
-		 *    VCROP_EN bits, so VWINPOS/VWIDCUT are never written and
-		 *    the vertical window is whatever drive mode 0x30 hardwires.
-		 *    Nothing in this driver can tell us where that is.
+		 *  - .crop.top WAS metadata only for this entry, when this
+		 *    was written: the vertical-crop path in
+		 *    imx283_start_streaming() was Mode-0-only, and 0x30's
+		 *    mdsel3/mdsel4 do not set the VCROP_EN bits themselves, so
+		 *    VWINPOS/VWIDCUT were never written and the vertical
+		 *    window was whatever drive mode 0x30 hardwires. That is no
+		 *    longer so: the gate is now `mode->veff && mode->vbin_ratio`,
+		 *    this entry satisfies it, the VCROP_EN bits are OR-ed in,
+		 *    and VWIDCUT = (veff - 2160) / 2 = 8 and VWINPOS = .top / 2
+		 *    = 426 are written. See the comment on imx283_mode_1c_window.
 		 *  - .crop.left is NOT metadata: it is written as
 		 *    HTRIMMING_START for every mode. Moving it is therefore a
 		 *    real, visible reframing of this mode, not bookkeeping.
 		 *
-		 * .left = 236 is HARDWARE-CONFIRMED: it is known to stream a
-		 * clean picture, and is kept as the fallback if the currently
-		 * active value (see below) fails on hardware.
+		 * .left = 236 was the first HARDWARE-CONFIRMED value: it is
+		 * known to stream a clean picture, and is kept as the fallback
+		 * if the currently active value (924, see below) turns out
+		 * to be wrong on a raw frame.
 		 *
-		 * The two coordinates are not the same kind of thing:
+		 * The two coordinates used to be different kinds of thing:
 		 *
-		 *  - .top is metadata for this entry. The arbitrary
-		 *    vertical-crop path in imx283_start_streaming() is
-		 *    Mode-0-only, and 0x30's mdsel3/mdsel4 do not set the
-		 *    VCROP_EN bits, so VWINPOS/VWIDCUT are never written here.
-		 *    852 removes the negative analogCrop libcamera used to
-		 *    report and changes nothing the sensor does.
-		 *  - .left is NOT metadata: it is written as HTRIMMING_START
+		 *  - .top was metadata for this entry (see above); 852 removed
+		 *    the negative analogCrop libcamera used to report and
+		 *    changed nothing the sensor did. It no longer is metadata:
+		 *    it reaches VWINPOS.
+		 *  - .left is not metadata: it is written as HTRIMMING_START
 		 *    for every mode.
 		 *
 		 * It was briefly changed to 856 to centre the window, on the
@@ -1366,21 +1397,26 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 * value against the corrected origin is 924 = 108 +
 		 * (5472 - 3840) / 2, a different number that was never tested
 		 * by that A/B. See IMX283_MODE_1C_WINDOW_LEFT above (and
-		 * ROUND2.md Defect C4): this branch now selects 924, UNTESTED
-		 * ON HARDWARE, with 236 kept here as the evidence for the
-		 * fallback if 924 turns out to fail the same way 856 did.
+		 * ROUND2.md Defect C4): this branch selects 924 (cb925e5),
+		 * verified on an ISP preview frame but not yet on a raw one,
+		 * with 236 kept as the fallback. The 2026-09-27 noise that
+		 * briefly sent it back to 236 was MODE_1C's veff of 3694,
+		 * not the window; it is explained there.
 		 */
 		.crop = {
 			/*
 			 * .top = 852 is the value that shipped a clean 3936x2176
-			 * frame (measured 2026-09-22). It was briefly changed to
+			 * frame (measured 2026-09-22) and is the one under the
+			 * cb925e5 preview verification. It was briefly changed to
 			 * 784 -- arithmetically the centred row against the
 			 * corrected active.top of 40, where 852 is centred against
 			 * the SWAPPED 108 -- on the reasoning that .top now reaches
-			 * VWINPOS instead of being metadata. That reasoning is
-			 * sound and the arithmetic is right, and the sensor still
-			 * said no: 2026-09-27, "distorted, only noise". Restored to
-			 * 852 on evidence.
+			 * VWINPOS instead of being metadata. That take came back as
+			 * noise (2026-09-27, "distorted, only noise") and 852 was
+			 * restored, but the noise was MODE_1C's veff of 3694 (fixed
+			 * in 335781d), not the row. So 784 has not been refuted and
+			 * has not been fairly tested either: it stays untried here,
+			 * one build and one reboot away.
 			 *
 			 * .left is IMX283_MODE_1C_WINDOW_LEFT (defined next to
 			 * imx283_mode_1c_window above, with both candidates and the
@@ -1442,12 +1478,16 @@ static const struct imx283_mode supported_modes_10bit[] = {
 	 * colour noise instead of a picture (see the base IMX283_MODE_1C entry
 	 * above for the measurement). IMX283_MODE_1C_WINDOW_LEFT currently
 	 * selects the CENTRED candidate (924, against the corrected origin),
-	 * which is UNTESTED ON HARDWARE; see that macro's comment for the
-	 * HW_CONFIRMED (236) fallback.
+	 * verified on an ISP preview frame but not yet on a raw one; see that
+	 * macro's comment for the HW_CONFIRMED (236) fallback. All twelve rows
+	 * below are .experimental (see the comment on IMX283_ASPECT_MODE_1C
+	 * above), so none is advertised without experimental_modes=1.
 	 *
-	 * Fourteen ratios, one parent: the three TALL ratios (1:1, 1.33:1,
+	 * Thirteen ratios, one parent (the base IMX283_MODE_1C entry for 1.78:1
+	 * plus the twelve rows below): the three TALL ratios (1:1, 1.33:1,
 	 * 1.37:1) keep the window's full 2160-row height and crop its sides; the
-	 * other ten keep the full 3840-column width and crop top/bottom. The
+	 * other ten (the base entry and nine rows) keep the full 3840-column
+	 * width and crop top/bottom. The
 	 * 1.78:1 row is DELIBERATELY ABSENT: at this window's own native shape
 	 * (3840x2160 = 16:9 = 1.7778), quantising 1.78:1 lands on exactly
 	 * 3840x2160 -- the same crop.left/.top/.width/.height as the base
