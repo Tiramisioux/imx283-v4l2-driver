@@ -1,10 +1,37 @@
 # IMX283 experimental crop modes
 
+> **STALE: see the tables in `imx283.c`.** This file was written while the
+> experimental crop modes were first being added and has not been kept in step
+> with the code. The mode list, sizes, crops and timings are
+> `supported_modes_12bit[]` and `supported_modes_10bit[]` in `imx283.c`;
+> `APERTAR.md` summarises them for Apertar users. What is known to be out of
+> date below:
+>
+> - The 18 fixed Mode-0 crops listed under "Added Mode-0 12-bit non-binned
+>   crops" no longer exist. Each parent mode now carries a centred
+>   aspect-ratio family (1:1 up to 2.55:1) instead.
+> - `experimental_modes` and `crop_vmax` are module parameters, not overlay
+>   parameters. Set them with `options imx283 experimental_modes=1` or
+>   `options imx283 crop_vmax=0` in `/etc/modprobe.d/imx283.conf`; they cannot
+>   go on the `dtoverlay=imx283` line.
+> - Sixteen entries are experimental, not four: modes 1S, 4, 5 and 6 and the
+>   twelve MODE_1C aspect-ratio rows.
+> - The vertical-crop registers are programmed for every mode that has a
+>   `veff`, not for Mode 0 only; `HTRIMMING_END` is `crop.left + crop.width`;
+>   `IMX283_MODE_1C` has `veff = 2176`, not 3694; and the aspect-ratio rows
+>   carry their own VMAX floors (`crop_min_VMAX`), used unless `crop_vmax=0`.
+>   Those floors are unmeasured. The WP-283-3 table below records the code as
+>   it was around 2026-09-20.
+> - Mode 2A has no full-frame entry; its rows start at 2736x1540.
+
 This branch is an experimental extension of `cinemate-dev`.
 
 It preserves the existing 12-bit and 10-bit readout modes, adds per-mode V4L2 crop reporting compatible with the approach used by the IMX585 experimental cropped-modes driver, and adds native 12-bit binned readout modes alongside fixed centered Mode-0 crops.
 
 ## Added Mode-0 12-bit non-binned crops
+
+**Historical: these 18 crops no longer exist.** None of these sizes is offered
+as a Mode-0 crop now (see the note at the top of this file).
 
 - 5184x3456
 - 4608x3072
@@ -30,7 +57,7 @@ The crop variants all use IMX283 Mode 0:
 - 1x1, no binning
 - centered crop of the 5472x3648 active area
 
-The branch enables the sensor's arbitrary vertical-crop registers (MDSEL3/MDSEL4, VWINPOS and VWIDCUT) for Mode 0.
+The branch enables the sensor's arbitrary vertical-crop registers (MDSEL3/MDSEL4, VWINPOS and VWIDCUT) for Mode 0. (Today they are enabled for every mode that has a `veff`.)
 
 This is a hardware-validation branch. The crop dimensions/alignment and resulting timing should be verified on the actual sensor before treating every advertised resolution as production-ready.
 
@@ -74,17 +101,18 @@ Modes 1S, 4, 5 and 6 are newly exposed on this branch. Their timing values are d
 Because 1S, 4, 5 and 6 are unvalidated, they are kept out of the mode list by default, so neither
 `--list-cameras` nor libcamera's format enumeration sees them. Each entry in `supported_modes_12bit[]` /
 `supported_modes_10bit[]` carries a `.experimental` flag, set only on IMX283_MODE_1S, _4, _5 and
-_6; `get_mode_table()` omits flagged entries unless the module is loaded with
-`experimental_modes=1` (e.g. `modprobe imx283 experimental_modes=1`, or a
-`dtoverlay=imx283,experimental_modes=1` param line, depending on how the overlay wires module
-params through). It is read-only at sysfs (`module_param(..., 0444)`): reload the module to change
+_6 and on the twelve IMX283_ASPECT_MODE_1C() rows; `get_mode_table()` omits flagged entries unless the module is loaded with
+`experimental_modes=1` (e.g. `modprobe imx283 experimental_modes=1`, or persistently
+`options imx283 experimental_modes=1` in `/etc/modprobe.d/imx283.conf`). It is a module parameter:
+`imx283-overlay.dts` has no override for it, so it cannot be set on the `dtoverlay=imx283` line. It is read-only at sysfs (`module_param(..., 0444)`): reload the module to change
 it, matching that these timings are meant to be tried deliberately, not toggled live.
 
 With the parameter off (the default), the driver behaves exactly as it did before these four modes
 existed: `--list-cameras` and format negotiation only ever see the shipped/validated readouts (0,
-1, 1A, 2, 2A, 3, 1C, and the Mode-0 crop family).
+1, 1A, 1C, 2, 2A, 3, and their aspect-ratio rows).
 
-With it on, all four come back with no other change to the list.
+With it on, all sixteen experimental entries come back (the four above and the twelve MODE_1C
+aspect-ratio rows) with no other change to the list.
 
 The entries themselves are not deleted — they are the record of this work and the path to
 validating them. What clears each one:
@@ -95,6 +123,7 @@ validating them. What clears each one:
 | 4 (1824x370, 12-bit, claimed 240 fps) | Same timing-derivation gap as 1S, plus vertical subsampling instead of binning is unverified | Hardware validation of the timing *and* a preview-stream policy that can serve a mode narrower than CineMate's 720-line requirement (a stack-side change, not just a driver one) |
 | 5 (1824x190, 12-bit, claimed 452 fps) | Same as mode 4 | Same as mode 4 |
 | 6 (2736x1538, 10-bit, claimed 60.01 fps) | Same timing-derivation gap as 1S | A hardware take confirms real image content, correct framing and no wrap at the derived timing |
+| MODE_1C aspect-ratio rows (twelve rows, 10-bit, parent 60.16 fps) | They carried Mode 0's `veff` 3694 and streamed noise; `veff` is now 2176 (the value that fixed the base MODE_1C entry) but no re-test of the rows is recorded | A hardware take of each row confirms a full frame, correct framing and no short frame |
 
 Sony documents arbitrary horizontal and vertical cropping, so the driver continues to report the selected analog crop through the V4L2 sub-device selection API. The very-high-speed modes 4 and 5 use vertical subsampling rather than ordinary 3×3 vertical binning; their reported vbin_ratio is therefore kept at 1.
 
