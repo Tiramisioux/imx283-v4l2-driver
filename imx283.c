@@ -251,15 +251,20 @@ struct cci_reg_sequence {
 #define IMAGE_PAD			0
 
 /*
- * Readout modes 1S, 4, 5 and 6 (added by this branch) carry HMAX/VMAX
- * timings derived only from Sony's published maximum frame rates, not
- * from hardware validation; see EXPERIMENTAL_CROPS.md. Modes 4 and 5
- * also produce frames shorter than CineMate's 720-line preview stream
- * and cannot survive its launch path today. Keep them out of the
- * default mode list (struct imx283_mode.experimental, checked in
- * get_mode_table()) until they clear hardware validation; a module
- * owner who wants to exercise them anyway can still load the driver
- * with experimental_modes=1.
+ * Sixteen mode-table entries are flagged .experimental:
+ *  - readout modes 1S, 4, 5 and 6 (added by this branch), which carry
+ *    HMAX/VMAX timings derived only from Sony's published maximum frame
+ *    rates, not from hardware validation (see EXPERIMENTAL_CROPS.md, which
+ *    is itself out of date: the tables in this file are authoritative);
+ *  - the twelve IMX283_ASPECT_MODE_1C() aspect-ratio rows of the 10-bit
+ *    UHD window, retired in c3fae40 until MODE_1C's veff was known. veff is
+ *    now 2176 (335781d) but the rows have not been re-tested.
+ * Modes 4 and 5 also produce frames shorter than CineMate's 720-line
+ * preview stream and cannot survive its launch path today. Keep all of them
+ * out of the default mode list (struct imx283_mode.experimental, checked in
+ * get_mode_table()) until they clear hardware validation; a module owner
+ * who wants to exercise them anyway can still load the driver with
+ * experimental_modes=1. The base IMX283_MODE_1C entry is not experimental.
  */
 static bool experimental_modes;
 module_param(experimental_modes, bool, 0444);
@@ -275,7 +280,7 @@ MODULE_PARM_DESC(crop_vmax,
 		  "Use the per-crop VMAX floor on Mode-0 vertical crops (experimental, "
 		  "UNMEASURED: see development/imx283-crop-fps/. Default 1 = use the experimental per-crop floor; set 0 to keep the Mode-0 floor.)");
 MODULE_PARM_DESC(experimental_modes,
-		  "Enable unvalidated readout modes 1S, 4, 5 and 6 (default: off, see EXPERIMENTAL_CROPS.md)");
+		  "Enable unvalidated modes: readout modes 1S, 4, 5 and 6 and the twelve MODE_1C aspect-ratio rows (default: off, see EXPERIMENTAL_CROPS.md)");
 
 /* imx283 native and active pixel array size. */
 static const struct v4l2_rect imx283_native_area = {
@@ -917,11 +922,12 @@ static const struct imx283_mode supported_modes_12bit[] = {
 		 * lens shading, so the wrong ratio is not cosmetic.
 		 *
 		 * veff is mainline's value for 2x2 binning (WP-283-3), the
-		 * same one MODE_2A carries. It is unused today -- the
-		 * arbitrary vertical-crop path in imx283_start_streaming() is
-		 * Mode-0-only -- but a zero left here is a live trap for
-		 * anyone who widens that gate, because VWIDCUT would go
-		 * negative.
+		 * same one MODE_2A carries. It is live: the vertical-crop path
+		 * in imx283_start_streaming() runs for every entry with a
+		 * non-zero veff and vbin_ratio and writes
+		 * v_widcut = (veff - y_out_size) / 2, so a wrong value moves
+		 * the window (MODE_1C's inherited 3694 is what once cut that
+		 * mode's frame to 642 lines).
 		 */
 		.veff = 1824,
 		.vst = 0,
@@ -1040,13 +1046,16 @@ static const struct imx283_mode supported_modes_12bit[] = {
 	 * there -- so no substitution applies in this family.
 	 *
 	 * crop_min_VMAX is per-row here, not constant like the other families
-	 * below: Mode 0 is the one mode with a real arbitrary-VWIDCUT vertical
-	 * crop (every other mode's vertical-crop path is Mode-0-only -- see the
-	 * comments on those families below and on IMX283_MODE_1C's base entry).
-	 * The formula, transport height + 129, is IMX283_CROPPED_1X1_MODE()'s own,
-	 * applied uniformly here (some of the rows this family replaces had
-	 * applied it inconsistently -- off by the 16-row vertical_ob on some rows
-	 * and not others).
+	 * below: Mode 0 is the one mode whose floor is lowered per crop (the
+	 * other families carry one floor for the whole family, or none -- see
+	 * the comments on those families below and on IMX283_MODE_1C's base
+	 * entry). The rule IMX283_CROPPED_1X1_MODE() uses, transport height +
+	 * 129, describes these values but the table does not follow it exactly:
+	 * it holds for the three full-height rows (3793) and for 1.90:1, 2.00:1
+	 * and 2.20:1, while 1.85:1, 2.22:1, 2.35:1, 2.39:1, 2.50:1 and 2.55:1
+	 * are 4 lines higher than it gives and 1.78:1 is 4 lower. Read the
+	 * numbers in the rows, not the formula. All of them are UNMEASURED (see
+	 * the crop_vmax module parameter).
 	 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 3648, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1:1 */
 	IMX283_ASPECT_MODE(IMX283_MODE_0, 12, 4864, 3648, 887, 3793, 3793, 900, 4000, 12, 3694, 1, 1, 96, 16), /* 1.33:1 */
@@ -1141,9 +1150,9 @@ static const struct imx283_mode supported_modes_10bit[] = {
 		 * correctly only because imx283_cfg_mode_binning has .min = 1
 		 * and the control clamped the zero back up; nobody should have
 		 * to rely on that. veff is mainline's 1x1 value (WP-283-3),
-		 * spelled out for the same reason as on MODE_2: unused while
-		 * the vertical-crop path stays Mode-0-only, a negative VWIDCUT
-		 * waiting to happen if that gate is ever widened.
+		 * spelled out for the same reason as on MODE_2: it is live,
+		 * because the vertical-crop path runs for every entry with a
+		 * non-zero veff and vbin_ratio (see MODE_2 above).
 		 */
 		.veff = 3694,
 		.vst = 0,
@@ -1725,9 +1734,9 @@ static inline struct imx283 *to_imx283(struct v4l2_subdev *_sd)
  * experimental_modes is set. Returns the number of entries copied.
  *
  * Filtering here, once, keeps every other mode's position and count
- * unchanged in the returned list; nothing but the four experimental
- * entries (IMX283_MODE_1S/_4/_5/_6, see the module parameter above) is
- * affected.
+ * unchanged in the returned list; nothing but the sixteen experimental
+ * entries (IMX283_MODE_1S/_4/_5/_6 and the twelve IMX283_ASPECT_MODE_1C()
+ * rows, see the module parameter above) is affected.
  */
 static unsigned int build_filtered_mode_table(const struct imx283_mode *src,
 					       unsigned int src_count,
