@@ -6,7 +6,7 @@ This guide provides detailed instructions on how to install the IMX283 kernel dr
 
 Before you begin the installation process, please ensure the following prerequisites are met:
 
-- **Kernel version**: You should be running on a Linux kernel version 6.1 or newer. You can verify your kernel version by executing `uname -r` in your terminal.
+- **Kernel version**: You should be running on a Linux kernel version 6.12 or newer (the driver includes `<linux/unaligned.h>`, which first exists in 6.12). You can verify your kernel version by executing `uname -r` in your terminal.
 
 - **Development tools**: Essential tools such as `gcc`, `dkms`, and `linux-headers` are required for compiling a kernel module. If not already installed, these can be installed using the package manager with the following command:
   
@@ -29,7 +29,7 @@ sudo apt install linux-headers dkms git
 Clone the repository to your local machine and navigate to the cloned directory:
 
 ```bash
-git clone https://github.com/will127534/imx283-v4l2-driver.git
+git clone -b cinemate-port https://github.com/Tiramisioux/imx283-v4l2-driver.git
 cd imx283-v4l2-driver/
 ```
 
@@ -43,10 +43,10 @@ To compile and install the kernel driver, execute the provided installation scri
 
 ### Updating the Boot Configuration
 
-Edit the boot configuration file using the following command:
+Edit the boot configuration file using the following command (on Raspberry Pi OS Bookworm and later the file is `/boot/firmware/config.txt`; images older than Bookworm use `/boot/config.txt`):
 
 ```bash
-sudo nano /boot/config.txt
+sudo nano /boot/firmware/config.txt
 ```
 
 In the opened editor, locate the line containing `camera_auto_detect` and change its value to `0`. Then, add the line `dtoverlay=imx283`. So, it will look like this:
