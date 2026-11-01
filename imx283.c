@@ -2511,7 +2511,8 @@ static int imx283_standby_cancel(struct imx283 *imx283)
 	cci_multi_reg_write(imx283, imx283->freq->regs,
 			    imx283->freq->reg_count, &ret);
 
-	dev_err(imx283->dev, "Using clk freq %d MHz", imx283->freq->mhz / MHZ(1));
+	dev_dbg(imx283->dev, "Using clk freq %d MHz\n",
+		imx283->freq->mhz / MHZ(1));
 
 	/* Initialise communication */
 	cci_write(imx283, IMX283_REG_PLSTMG08, IMX283_PLSTMG08_VAL, &ret);
@@ -2573,9 +2574,9 @@ static int imx283_start_streaming(struct imx283 *imx283)
 	/* Initialise SVR. Unsupported for now - Always 0 */
 	cci_write(imx283, IMX283_REG_SVR, 0x00, &ret);
 
-	dev_err(imx283->dev, "Mode: Size %d x %d\n", mode->width, mode->height);
+	dev_dbg(imx283->dev, "Mode: Size %d x %d\n", mode->width, mode->height);
 
-	dev_err(imx283->dev, "Analogue Crop (in the mode) %d,%d %dx%d\n",
+	dev_dbg(imx283->dev, "Analogue Crop (in the mode) %d,%d %dx%d\n",
 		mode->crop.left,
 		mode->crop.top,
 		mode->crop.width,
