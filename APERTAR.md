@@ -100,9 +100,11 @@ options imx283 crop_vmax=0 experimental_modes=0
 - **`crop_vmax=0`**: the driver's default is 1, which gives the cropped
   aspect-ratio rows their own, lower VMAX floors (higher frame rates than the
   parent mode, for example about 35 fps for the 2.55:1 Mode 0 row against
-  21.4 fps). Those floors were worked out from Sony's figures, not measured on
-  a sensor, so Apertar runs with `crop_vmax=0`: every row keeps its parent
-  mode's floor. The frame rates in the table below are for `crop_vmax=0`.
+  21.4 fps). Those floors are experimental values: they are not Sony's
+  published figures (Sony publishes maximum frame rates for the readout modes
+  only) and they have not been measured on a sensor. Apertar therefore runs with
+  `crop_vmax=0`: every row keeps its parent mode's floor. The frame rates in
+  the table below are for `crop_vmax=0`.
 - **`experimental_modes=0`**: this is the default; it keeps the 16 unvalidated
   entries out of the mode list (readout modes 1S, 4, 5 and 6, and the twelve
   MODE_1C aspect-ratio rows). Leave it at 0 for normal use.
