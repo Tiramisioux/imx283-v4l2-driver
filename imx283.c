@@ -1931,6 +1931,14 @@ static u32 imx283_get_format_code(struct imx283 *imx283, u32 code)
 		if (codes[i] == code)
 			break;
 
+	/*
+	 * An unsupported code (set_fmt and enum_frame_size pass userspace's
+	 * code straight in) must not index past the end of codes[]: fall back
+	 * to the first supported code, as the other sensor drivers do.
+	 */
+	if (i >= ARRAY_SIZE(codes))
+		i = 0;
+
 	return codes[i];
 }
 
