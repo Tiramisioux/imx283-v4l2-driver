@@ -2836,11 +2836,26 @@ static int imx283_get_selection(struct v4l2_subdev *sd,
 
 		return 0;
 
-	case V4L2_SEL_TGT_CROP_DEFAULT: {
-		struct imx283 *imx283 = to_imx283(sd);
-		sel->r = imx283_output_crop(imx283->mode);
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+		/*
+		 * The default crop is the full active area, whatever mode is
+		 * selected -- the usual sensor-driver meaning, and the same
+		 * rectangle as CROP_BOUNDS. It must NOT follow imx283->mode:
+		 * libcamera's CameraSensorLegacy reads CROP_DEFAULT once, when
+		 * the camera is created, and keeps it as the pixel array's
+		 * active area. The Raspberry Pi fork then subtracts that
+		 * area's origin from every mode's crop to build analogCrop
+		 * (and so ScalerCropMaximum and the IPA's sensor geometry).
+		 * Returning the current mode's crop made all of that depend
+		 * on whichever mode a previous process left the sensor in,
+		 * and gave negative origins when a full-frame mode was read
+		 * after a cropped one. V4L2_SEL_TGT_CROP still reports the
+		 * current mode's crop.
+		 */
+		sel->r = imx283_active_area;
+
 		return 0;
-	}
+
 	case V4L2_SEL_TGT_CROP_BOUNDS:
 		sel->r = imx283_active_area;
 
