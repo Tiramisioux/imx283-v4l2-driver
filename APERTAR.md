@@ -90,29 +90,26 @@ dtoverlay=imx283,cam0,link-frequency=360000000
 ## /etc/modprobe.d/imx283.conf
 
 `crop_vmax` and `experimental_modes` are module parameters, not overlay
-parameters, so they do not go on the `dtoverlay=` line. Create
-`/etc/modprobe.d/imx283.conf` with:
+parameters, so they do not go on the `dtoverlay=` line. Both are off by
+default, and Apertar needs no `/etc/modprobe.d/imx283.conf`. If an older
+install left one with `crop_vmax=0`, it can stay or go: it says what the
+default says.
 
-```
-options imx283 crop_vmax=0 experimental_modes=0
-```
+- **`crop_vmax`** (default 0): every cropped aspect-ratio row keeps its parent
+  mode's VMAX floor. The frame rates in the table below are for this default.
+  With `options imx283 crop_vmax=1` the rows get their own, lower floors
+  (higher frame rates than the parent mode, for example about 35 fps for the
+  2.55:1 Mode 0 row against 21.4 fps). Those floors are experimental values:
+  they are not Sony's published figures (Sony publishes maximum frame rates
+  for the readout modes only) and they have not been measured on a sensor.
+- **`experimental_modes`** (default 0): keeps the 16 unvalidated entries out
+  of the mode list (readout modes 1S, 4, 5 and 6, and the twelve MODE_1C
+  aspect-ratio rows). Leave it at 0 for normal use.
 
-- **`crop_vmax=0`**: the driver's default is 1, which gives the cropped
-  aspect-ratio rows their own, lower VMAX floors (higher frame rates than the
-  parent mode, for example about 35 fps for the 2.55:1 Mode 0 row against
-  21.4 fps). Those floors are experimental values: they are not Sony's
-  published figures (Sony publishes maximum frame rates for the readout modes
-  only) and they have not been measured on a sensor. Apertar therefore runs with
-  `crop_vmax=0`: every row keeps its parent mode's floor. The frame rates in
-  the table below are for `crop_vmax=0`.
-- **`experimental_modes=0`**: this is the default; it keeps the 16 unvalidated
-  entries out of the mode list (readout modes 1S, 4, 5 and 6, and the twelve
-  MODE_1C aspect-ratio rows). Leave it at 0 for normal use.
-
-Reboot after editing. To see what the loaded module is using:
+To see what the loaded module is using:
 
 ```bash
-cat /sys/module/imx283/parameters/crop_vmax          # N when crop_vmax=0
+cat /sys/module/imx283/parameters/crop_vmax          # N by default
 cat /sys/module/imx283/parameters/experimental_modes # N by default
 ```
 
@@ -193,7 +190,7 @@ or what libcamera computes; neither has been done.
 
 **Per-crop VMAX floors.** With `crop_vmax=1` the rows advertise frame rates
 above their parent mode's. None of those floors has been measured, which is why
-`/etc/modprobe.d/imx283.conf` above sets `crop_vmax=0`.
+`crop_vmax` is off by default.
 
 ## Logging
 

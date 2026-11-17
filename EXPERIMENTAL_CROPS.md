@@ -12,14 +12,14 @@
 >   aspect-ratio family (1:1 up to 2.55:1) instead.
 > - `experimental_modes` and `crop_vmax` are module parameters, not overlay
 >   parameters. Set them with `options imx283 experimental_modes=1` or
->   `options imx283 crop_vmax=0` in `/etc/modprobe.d/imx283.conf`; they cannot
+>   `options imx283 crop_vmax=1` in `/etc/modprobe.d/imx283.conf`; they cannot
 >   go on the `dtoverlay=imx283` line.
 > - Sixteen entries are experimental, not four: modes 1S, 4, 5 and 6 and the
 >   twelve MODE_1C aspect-ratio rows.
 > - The vertical-crop registers are programmed for every mode that has a
 >   `veff`, not for Mode 0 only; `HTRIMMING_END` is `crop.left + crop.width`;
 >   `IMX283_MODE_1C` has `veff = 2176`, not 3694; and the aspect-ratio rows
->   carry their own VMAX floors (`crop_min_VMAX`), used unless `crop_vmax=0`.
+>   carry their own VMAX floors (`crop_min_VMAX`), used only with `crop_vmax=1`.
 >   Those floors are unmeasured. The WP-283-3 table below records the code as
 >   it was around 2026-09-20.
 > - Mode 2A has no full-frame entry; its rows start at 2736x1540.
