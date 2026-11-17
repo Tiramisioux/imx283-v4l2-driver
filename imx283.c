@@ -268,17 +268,12 @@ struct cci_reg_sequence {
  */
 static bool experimental_modes;
 module_param(experimental_modes, bool, 0444);
-/*
- * Apply the experimental per-crop VMAX floor by default. The driver is
- * normally autoloaded by the camera device, so requiring a manual modprobe
- * argument would make the experiment needlessly fragile. Set crop_vmax=0
- * only when explicitly disabling the experiment for a test.
- */
-static bool crop_vmax = true;
+/* The per-crop VMAX floors are unmeasured, so they are off unless asked for. */
+static bool crop_vmax;
 module_param(crop_vmax, bool, 0444);
 MODULE_PARM_DESC(crop_vmax,
 		  "Use the per-crop VMAX floor on Mode-0 vertical crops (experimental, "
-		  "UNMEASURED: see development/imx283-crop-fps/. Default 1 = use the experimental per-crop floor; set 0 to keep the Mode-0 floor.)");
+		  "UNMEASURED: see development/imx283-crop-fps/. Default 0 = keep the Mode-0 floor; set 1 to use the per-crop floor.)");
 MODULE_PARM_DESC(experimental_modes,
 		  "Enable unvalidated modes: readout modes 1S, 4, 5 and 6 and the twelve MODE_1C aspect-ratio rows (default: off, see EXPERIMENTAL_CROPS.md)");
 
